@@ -1,0 +1,2 @@
+[core_recency6 h=5 n=47] mean: auc=0.5338 acc=0.5234 ll_skill_bp=16.7794 ic=0.0320 acc_top10=0.5631 edge_top10=0.0730 auc@zd0_5=0.5359 ic@zd0_5=0.0359 auc@zd10_5=0.5307 ic@zd10_5=0.0265 auc@zd30_5=0.5262 ic@zd30_5=0.0207 | worst-fold auc=0.5288 ic=0.0250
+QUEUE5_DONE

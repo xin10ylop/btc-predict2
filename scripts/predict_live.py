@@ -38,16 +38,45 @@ PLAIN = {
     "clv": "where the candle closed in its range", "upper_wick": "upper wick", "lower_wick": "lower wick",
     "vol_ratio_10_60": "volatility rising/falling", "vol_ratio_60_1440": "volatility vs day", "sig_bp": "volatility level",
     "range_last": "last candle range", "range_5": "5m range",
+    "rg_leadlag_1d": "perp-lead strength, last 24h", "rg_leadlag_3d": "perp-lead strength, last 3d",
+    "rg_fresh_1d": "gap-freshness strength, last 24h", "rg_micromom_1d": "minute momentum regime, 24h",
+    "rg_micromom_3d": "minute momentum regime, 3d", "rg_clv_1d": "close-location regime, 24h",
+    "rg_meanrev_3d": "mean-reversion strength, 3d", "rg_vol_1d_vs_5d": "volatility vs past 5 days",
+    "rg_liq_1d_vs_5d": "volume vs past 5 days",
 }
+HISTORY = 20000   # minutes of history kept live: features need ~8000, the 7-day self-check needs the rest
+
+
+def regime_line(last):
+    v, q, ll = (float(last[c].iloc[0]) for c in ("rg_vol_1d_vs_5d", "rg_liq_1d_vs_5d", "rg_leadlag_1d"))
+    vol = "calmer than this week" if v < -0.25 else ("wilder than this week" if v > 0.25 else "normal for this week")
+    liq = "thin" if q < -0.25 else ("heavy" if q > 0.25 else "normal")
+    lead = "strong" if ll > 0.10 else ("normal" if ll > 0.04 else "weak/absent")
+    return f"regime: volatility {vol} ({v:+.2f}) | volume {liq} | perp-lead last 24h {lead} ({ll:+.3f})"
+
+
+def show_track(pred):
+    if not pred.track:
+        print("  self-check: fewer than ~1.5 days since the model's training cutoff, using the static calibration")
+        return
+    parts = [f"{h}m hit {t['hit']*100:.1f}% skill {t['skill_bp']:+.0f}bp temp {t['temp']:.2f}{'*' if t['online'] else ''}"
+             for h, t in sorted(pred.track.items())]
+    print(f"  self-check, last {pred.track[min(pred.track)]['days']} days: " + " | ".join(parts))
+    print("  (* = temperature refitted on this self-check window; 1m always, other horizons only when their edge broke)")
+    bad = [h for h, t in pred.track.items() if t["skill_bp"] < 0]
+    if bad:
+        print(f"  ! edge NOT confirmed in the last 7 days for {', '.join(f'{h}m' for h in sorted(bad))} (regime change?):"
+              " those probabilities are shrunk toward 50%")
 
 
 def explain(pred, X_last, h, k=4):
     m = pred.dir_models[h][len(pred.dir_models[h]) // 2]
-    c = m.predict(X_last[pred.features].values, pred_contrib=True)[0][:-1]
+    fh = pred.feats(h)
+    c = m.predict(X_last[fh].values, pred_contrib=True)[0][:-1]
     order = np.argsort(-np.abs(c))[:k]
     out = []
     for i in order:
-        f = pred.features[i]
+        f = fh[i]
         out.append(f"{'+' if c[i] > 0 else '-'} {PLAIN.get(f, f)} ({X_last[f].iloc[0]:+.2f})")
     return out
 
@@ -62,8 +91,12 @@ def main():
     pred = BTCPredictor.load(a.model)
     os.makedirs(os.path.dirname(a.log), exist_ok=True)
     print(f"model trained until {pred.meta.get('trained_until')} | act within ~{pred.delay}s of the candle close")
-    print("loading history (8000 minutes)...", flush=True)
-    cache = live.fetch_panel(8000)  # warm-up before the first wait, so the first forecast is on time
+    print(f"loading history ({HISTORY} minutes)...", flush=True)
+    cache = live.fetch_panel(HISTORY)  # warm-up before the first wait, so the first forecast is on time
+    X, _ = make_features(cache)
+    pred.online_calibrate(X, cache["s_close"])   # regime adaptation: self-check on the last 7 days
+    show_track(pred)
+    last_recal = time.time()
     first = True
     while True:
         if not (a.once and a.now):  # wake 0.4s after the minute boundary
@@ -76,7 +109,7 @@ def main():
             else:
                 new = live.fetch_panel(5)
                 cache = pd.concat([cache, new])
-                cache = cache[~cache.index.duplicated(keep="last")].sort_index().tail(8000)
+                cache = cache[~cache.index.duplicated(keep="last")].sort_index().tail(HISTORY)
                 full = pd.date_range(cache.index[0], cache.index[-1], freq="1min", tz="UTC")
                 cache = cache.reindex(full)
             X, sig = make_features(cache)
@@ -87,6 +120,10 @@ def main():
                 raise
             continue
         first = False
+        if time.time() - last_recal > 3600:  # hourly: re-score the last 7 days, refit temperatures
+            pred.online_calibrate(X, cache["s_close"])
+            last_recal = time.time()
+            show_track(pred)
         bar = X.index[-1]
         last = X.iloc[[-1]]
         f = pred.describe(last, px_now, float(sig.iloc[-1]))
@@ -104,6 +141,7 @@ def main():
                   f"{r['price_q05']:,.0f} – {r['price_q95']:,.0f}")
         for h in (1, 5):
             print(f"  why {h}m: " + "; ".join(explain(pred, last, h)))
+        print("  " + regime_line(last))
         if last["clock_class"].iloc[0] == 4 and abs(last["vwap_dev_30"].iloc[0]) > 1.0:
             side = "DOWN" if last["vwap_dev_30"].iloc[0] > 0 else "UP"
             print(f"  ! funding-settlement window and price is {last['vwap_dev_30'].iloc[0]:+.1f} sigma from its 30m VWAP:"

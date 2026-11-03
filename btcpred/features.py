@@ -204,6 +204,33 @@ def make_features(P, families=None):
         _add(F, f"phase_lag_{lag}", z1.shift(lag - 1), "phase")
     _add(F, "phase_hour_avg", (z1.shift(59) + z1.shift(119) + z1.shift(179)) / 3, "phase")
 
+    # ---------------- M. regime state: how well each mechanism has worked LATELY ---------
+    # The relationships themselves change (e.g. perp->spot lead-lag was ~0 during Binance's
+    # zero-fee BTCUSDT period Jul-2022..Mar-2023 and jumped 5x when fees returned). Each
+    # feature is a trailing correlation between a signal and the return that FOLLOWED it,
+    # using only bars <= t, so the model can see which regime it is in. 1-3 day windows fit
+    # in the live history (8000 bars).
+    zc = z1.clip(-6, 6)
+    bdev = pd.Series(F["basis_dev_60"], index=idx).clip(-6, 6)
+    bfr = pd.Series(F["basis_fresh"], index=idx).clip(-6, 6)
+    clv_s = pd.Series(F["clv"], index=idx)
+    vdev = pd.Series(F["vwap_dev_30"], index=idx).clip(-6, 6)
+    r5 = ((s_c - s_c.shift(5)) / (sig.shift(5) * np.sqrt(5))).clip(-6, 6)   # realised 5m move
+    def rcorr(a, b, w):
+        return a.rolling(w, min_periods=w // 2).corr(b)
+    _add(F, "rg_leadlag_1d", rcorr(bdev.shift(1), zc, 1440), "regime")
+    _add(F, "rg_leadlag_3d", rcorr(bdev.shift(1), zc, 4320), "regime")
+    _add(F, "rg_fresh_1d", rcorr(bfr.shift(1), zc, 1440), "regime")
+    _add(F, "rg_micromom_1d", rcorr(zc.shift(1), zc, 1440), "regime")
+    _add(F, "rg_micromom_3d", rcorr(zc.shift(1), zc, 4320), "regime")
+    _add(F, "rg_clv_1d", rcorr(clv_s.shift(1), zc, 1440), "regime")
+    _add(F, "rg_meanrev_3d", rcorr(vdev.shift(5), r5, 4320), "regime")
+    rv1 = r.rolling(1440, min_periods=720).std()
+    rv5 = r.rolling(7200, min_periods=3600).std()
+    _add(F, "rg_vol_1d_vs_5d", np.log(rv1 / rv5), "regime")
+    _add(F, "rg_liq_1d_vs_5d", np.log((qv.rolling(1440, min_periods=720).mean() + 1) /
+                                      (qv.rolling(7200, min_periods=3600).mean() + 1)), "regime")
+
     out = pd.DataFrame(F, index=idx)
     out = out.replace([np.inf, -np.inf], np.nan)
     if families is not None:

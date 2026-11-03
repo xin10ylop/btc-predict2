@@ -26,10 +26,32 @@ def load_all():
     return P, X, T, sig
 
 
-def evaluate(pred, X, T, start, end, out_json):
+def online_recal_sim(pred, F, Xh, close, days=7):
+    """Replay the live loop's daily self-recalibration over the evaluation period: each day's
+    temperature is fitted on the previous `days` days of close-to-close outcomes only."""
+    from scipy.optimize import minimize_scalar
+    out = F.copy()
+    day = Xh.index.floor("D"); udays = day.unique()
+    for h in HORIZONS:
+        p = np.clip(F[f"p_up_{h}"].values, 1e-6, 1 - 1e-6); lg = np.log(p / (1 - p))
+        c0 = close.reindex(Xh.index).values; c1 = close.shift(-h).reindex(Xh.index).values
+        ok = np.isfinite(c0) & np.isfinite(c1) & (c0 != c1); y = (c1 > c0).astype(float)
+        a_t = np.ones(len(p))
+        for i, d in enumerate(udays):
+            if i < days:
+                continue
+            rows = np.flatnonzero((day >= udays[i - days]) & (day < d) & ok)
+            f = lambda a: -np.mean(y[rows] * np.log(np.clip(1 / (1 + np.exp(-a * lg[rows])), 1e-6, 1)) +
+                                   (1 - y[rows]) * np.log(np.clip(1 - 1 / (1 + np.exp(-a * lg[rows])), 1e-6, 1)))
+            a_t[day == d] = minimize_scalar(f, bounds=(0.0, 3.0), method="bounded").x * pred.PROXY_ADJ[h]
+        out[f"p_up_{h}"] = 1 / (1 + np.exp(-a_t * lg))
+    return out
+
+
+def evaluate(pred, X, T, start, end, out_json, F=None):
     msk = (X.index >= start) & (X.index < end)
     Xh, Th = X[msk], T[msk]
-    F = pred.predict_frame(Xh)
+    F = pred.predict_frame(Xh) if F is None else F
     rep = {"period": [str(start), str(end)], "horizons": {}}
     for h in HORIZONS:
         hr = {}
@@ -83,18 +105,24 @@ def evaluate(pred, X, T, start, end, out_json):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["holdout", "live"], required=True)
-    ap.add_argument("--features", default="reports/selected_features.json")
+    ap.add_argument("--design", default="reports/model_design.json")
     ap.add_argument("--windows", default="12,24,36")
     a = ap.parse_args()
     P, X, T, sig = load_all()
-    feats = json.load(open(a.features)) if os.path.exists(a.features) else list(X.columns)
+    design = json.load(open(a.design))
     windows = tuple(int(w) for w in a.windows.split(","))
-    pred = BTCPredictor(feats, delay=2, windows=windows)
+    pred = BTCPredictor(design["base"], delay=2, windows=windows, hfeatures=design.get("hfeatures"),
+                        halflife=design.get("halflife"))
     if a.mode == "holdout":
         pred.fit(X, T, HOLDOUT_START)
         pred.save("models/holdout")
-        evaluate(pred, X, T, pd.Timestamp(HOLDOUT_START, tz="UTC"), X.index[-1] + pd.Timedelta(minutes=1),
-                 "reports/holdout_report.json")
+        a0, b0 = pd.Timestamp(HOLDOUT_START, tz="UTC"), X.index[-1] + pd.Timedelta(minutes=1)
+        print("--- static (raw ensemble) ---")
+        evaluate(pred, X, T, a0, b0, "reports/holdout_report.json")
+        print("--- with live-style online recalibration (7-day self-check) ---")
+        msk = (X.index >= a0) & (X.index < b0)
+        Fo = online_recal_sim(pred, pred.predict_frame(X[msk], raw=True), X[msk], P["s_close"])
+        evaluate(pred, X, T, a0, b0, "reports/holdout_report_online.json", F=Fo)
     else:
         pred.fit(X, T, X.index[-1] - pd.Timedelta(minutes=10))
         if os.path.exists("reports/calibration.json"):  # fitted on the holdout after it was scored

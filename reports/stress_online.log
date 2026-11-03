@@ -1,0 +1,5 @@
+h=1 zero-fee stress, regime-aware design static         : acc=51.49% auc=0.5199 llskill=-5.4bp top10=52.12%  median temp 0.59
+h=1 zero-fee stress, regime-aware design + online recal : acc=51.49% auc=0.5200 llskill=+4.3bp top10=52.89%  median temp 0.59
+h=5 zero-fee stress, regime-aware design static         : acc=52.56% auc=0.5350 llskill=+17.9bp top10=55.92%  median temp 1.30
+h=5 zero-fee stress, regime-aware design + online recal : acc=52.56% auc=0.5350 llskill=+17.8bp top10=55.85%  median temp 1.30
+QUEUE7_DONE

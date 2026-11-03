@@ -34,7 +34,7 @@ def metrics(p, y, z):
 
 def walk_forward(X, T, h, folds=TEST_FOLDS, train_months=24, params=None,
                  rounds=400, sub=2, feats=None, verbose=True, return_models=False,
-                 target=None, eval_targets=()):
+                 target=None, eval_targets=(), halflife_months=None):
     """Train LightGBM per fold on [test_start - train_months, test_start - gap)."""
     params = {**BASE_PARAMS, **(params or {})}
     feats = feats or list(X.columns)
@@ -50,7 +50,12 @@ def walk_forward(X, T, h, folds=TEST_FOLDS, train_months=24, params=None,
         tr_i = np.flatnonzero(tr)[::sub]
         # last 10% of training (time-ordered) for early stopping
         cut = int(len(tr_i) * 0.9)
-        dtr = lgb.Dataset(X.iloc[tr_i[:cut]][feats].values, y_all[tr_i[:cut]], free_raw_data=True)
+        w = None
+        if halflife_months:  # recency weighting: weight halves every `halflife_months` back in time
+            age_m = (te - idx[tr_i]).days.values / 30.44
+            w = 0.5 ** (age_m / halflife_months)
+        dtr = lgb.Dataset(X.iloc[tr_i[:cut]][feats].values, y_all[tr_i[:cut]], free_raw_data=True,
+                          weight=None if w is None else w[:cut])
         dva = lgb.Dataset(X.iloc[tr_i[cut:]][feats].values, y_all[tr_i[cut:]], reference=dtr)
         mdl = lgb.train(params, dtr, rounds, valid_sets=[dva],
                         callbacks=[lgb.early_stopping(60, verbose=False)])

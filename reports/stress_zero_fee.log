@@ -1,0 +1,8 @@
+h=1 no regime feats  | zero-fee regime 2022-07..2023-03       acc=51.19% auc=0.5150 llskill=-12.7bp top10=50.80%
+h=1 no regime feats  | same-regime control 2025-04..2026-03   acc=52.96% auc=0.5443 llskill=+34.7bp top10=60.05%
+h=1 + regime feats   | zero-fee regime 2022-07..2023-03       acc=51.49% auc=0.5199 llskill=-5.4bp top10=52.12%
+h=1 + regime feats   | same-regime control 2025-04..2026-03   acc=53.11% auc=0.5463 llskill=+37.3bp top10=60.43%
+h=5 no regime feats  | zero-fee regime 2022-07..2023-03       acc=52.56% auc=0.5350 llskill=+17.9bp top10=55.92%
+h=5 no regime feats  | same-regime control 2025-04..2026-03   acc=52.14% auc=0.5304 llskill=+14.0bp top10=55.22%
+h=5 + regime feats   | zero-fee regime 2022-07..2023-03       acc=52.55% auc=0.5360 llskill=+19.0bp top10=56.07%
+h=5 + regime feats   | same-regime control 2025-04..2026-03   acc=52.11% auc=0.5303 llskill=+13.3bp top10=55.18%

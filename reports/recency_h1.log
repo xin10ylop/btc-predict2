@@ -1,0 +1,1 @@
+[core_recency6 h=1 n=47] mean: auc=0.5465 acc=0.5316 ll_skill_bp=38.4053 ic=0.0832 acc_top10=0.5981 edge_top10=0.2016 auc@zd0_1=0.5539 ic@zd0_1=0.1010 auc@zd10_1=0.5329 ic@zd10_1=0.0568 auc@zd30_1=0.5197 ic@zd30_1=0.0295 | worst-fold auc=0.5270 ic=0.0523

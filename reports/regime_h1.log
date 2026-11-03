@@ -1,0 +1,1 @@
+[core_regime h=1 n=56] mean: auc=0.5490 acc=0.5336 ll_skill_bp=40.0399 ic=0.0851 acc_top10=0.6014 edge_top10=0.2049 auc@zd0_1=0.5560 ic@zd0_1=0.1020 auc@zd10_1=0.5352 ic@zd10_1=0.0588 auc@zd30_1=0.5213 ic@zd30_1=0.0305 | worst-fold auc=0.5330 ic=0.0540

@@ -116,6 +116,74 @@ information.
 the last 12, 24 and 36 months beat each single window at both horizons, in log-loss and in
 the worst fold.
 
+## Regime changes
+
+The diagnosis comes first. All decisions below were made on the 2023 – April 2026 folds;
+`research/regime_*.py` and `research/stress_*.py` hold the tests.
+
+**The edge survives ordinary regimes.** Walk-forward accuracy at 1 minute, by regime:
+
+| Regime | 1-min accuracy |
+|---|---|
+| strong bear → strong bull (7-day trend) | 52.8% → 53.5%: trend does not matter |
+| much calmer → much wilder than the last 90 days | 54.8% → 51.6%: weaker in turmoil, never negative |
+| thin → heavy volume | 54.3% → 52.0% |
+| model age, month 1 → month 6 after training | 53.4% → 53.2%: no real staleness |
+
+Only 1 of 40 months had negative skill.
+
+**Structural breaks are the real risk.** Signal strength measured month by month splits into
+three kinds:
+* **Mean reversion** has the same sign in 100% of months. Its strength varies about 2x and
+  it never flips.
+* **The perp lead** has the same sign in 95–98% of months, but its strength varies 5x.
+* **Candle micro-shape** (close location, last-minute move) has the same sign in only
+  58–77% of months, and it **flips**.
+
+The break is sharp and has a known cause: **Binance's zero-fee BTCUSDT spot promotion
+(July 2022 – March 22, 2023)**. With free arbitrage, spot tracked the perp almost instantly.
+The perp-lead IC sat at 0–2% and the candle signals were reversed. Within weeks of fees
+returning, the perp-lead IC jumped to 9–20% and the candle signals turned positive. The fast
+edge is, in effect, the price of arbitrage.
+
+**What was done about it.**
+
+| Remedy | Result on 2023–26 folds | Decision |
+|---|---|---|
+| **Regime-state features** (1-min only): trailing 1–3-day strength of each mechanism (perp lead, gap freshness, minute momentum, close location, mean reversion), plus volatility and volume vs the past 5 days, all from past data only | 1 min: +4.1 bp log-loss, **6/7 folds**, biggest gain (+19 bp) right after the 2023 break. 2 min: 3/7, 3 min: 1/7, 5 min: 2/7 | **kept for 1 min only** |
+| Recency-weighted training (6-month half-life) | 1 min 3/7, 5 min 2/7. It helps after a break and hurts otherwise | rejected |
+| **Online recalibration**: each day the live loop scores itself on the last 7 days and refits the probability temperature | 1 min: +2.0 bp (folds), +0.7 (holdout), +9.7 (stress). 2–5 min: about neutral | **always on for 1 min; circuit breaker for 2–5 min** (engages only when the 7-day skill turns negative) |
+| Monthly retraining | no measurable staleness over 6 months | optional (see below) |
+
+**Stress test: what if zero-fee returns?** A model trained only on today's regime
+(Apr 2023 – Mar 2025) predicted the zero-fee period (training on later data to test earlier
+data is fine for robustness, but it is not a forecasting claim):
+
+| 1-minute model | Log-loss skill | Top-10% accuracy |
+|---|---|---|
+| original design | **−12.7 bp** (worse than a coin flip) | 50.8% |
+| + regime features | −5.4 bp | 52.1% |
+| + online recalibration (full design) | **+4.3 bp** | 52.9% |
+
+The 5-minute model needed no help: +17.9 bp in the zero-fee regime, because mean
+reversion is structural.
+
+**Regime-aware design on the holdout** (a second look, after the original single scoring):
+1-minute log-loss skill rose from 47.7 to 52.8 bp, AUC from 0.557 to 0.558, and top-10% accuracy
+from 61.2% to 61.6%. Horizons 2–5 are unchanged by design.
+
+**Live behaviour.** At startup the predictor loads 2 weeks of history. It then:
+* scores its own forecasts over the last 7 days, never on minutes the model trained on;
+* refits temperatures, hourly;
+* prints a regime line (volatility and volume vs the week, current perp-lead strength) and
+  its 7-day track record;
+* warns when any horizon's edge is not confirmed.
+
+**First forward check (truly new data).** In the 2.6 days after the live model's training
+cutoff (Nov 1–3, 2026, about 3,700 minutes), the self-check measured accuracy on close-to-close
+outcomes of 55.3% (1 min), 52.7% (2 min), 52.3% (3 min), 51.8% (4 min) and 52.4% (5 min). The
+sample is small but consistent with the holdout.
+
 ## Running it
 
 ```bash
@@ -175,6 +243,17 @@ Real output from the live loop on 2026-11-03 (abridged to one minute):
 Most minutes are near 50%, and that is correct: the model only leans when it has a reason.
 After 10 or more forecasts, a `live scorecard` line reports the realised hit rate.
 
+To refresh the model after new months are published (optional; no staleness was measured
+over 6 months), re-run the download steps with the new `--end` month and then:
+
+```bash
+python -m btcpred.data
+```
+
+```bash
+python scripts/train.py --mode live
+```
+
 ## Repository map
 
 | Path | What it is |
@@ -185,7 +264,7 @@ After 10 or more forecasts, a `live scorecard` line reports the realised hit rat
 | `btcpred/validate.py` | walk-forward harness and metrics |
 | `scripts/` | download, train, calibrate, live loop |
 | `research/` | every experiment behind the findings (IC scans, latency decay, ablations, regressions) |
-| `reports/` | logs, per-fold CSVs, `holdout_report.json`, `calibration.json`, `selected_features.json` |
+| `reports/` | logs, per-fold CSVs, `holdout_report*.json`, `calibration.json`, `model_design.json` (per-horizon features) |
 
 ## Method
 

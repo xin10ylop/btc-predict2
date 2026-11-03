@@ -12,8 +12,9 @@ if len(sys.argv) > 2:
 else:
     SETS = {"v1_all": [c for c in X.columns if fam[c] != "intrabar"], "v2_all": list(X.columns)}
 for name, feats in SETS.items():
+    hl = float(os.environ["HALFLIFE"]) if os.environ.get("HALFLIFE") else None
     r, p = walk_forward(X, T, h, sub=3, target=f"zd2_{h}", feats=feats, verbose=False,
-                        eval_targets=(f"zd0_{h}", f"zd10_{h}", f"zd30_{h}"))
+                        eval_targets=(f"zd0_{h}", f"zd10_{h}", f"zd30_{h}"), halflife_months=hl)
     summarize(r, f"{name} h={h} n={len(feats)}")
     r.to_csv(f"reports/cv_{name}_h{h}.csv", index=False)
     p.to_frame("p").to_parquet(f"data/pred_{name}_h{h}.parquet")
