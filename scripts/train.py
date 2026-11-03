@@ -97,6 +97,8 @@ def main():
                  "reports/holdout_report.json")
     else:
         pred.fit(X, T, X.index[-1] - pd.Timedelta(minutes=10))
+        if os.path.exists("reports/calibration.json"):  # fitted on the holdout after it was scored
+            pred.calib = {int(k): v for k, v in json.load(open("reports/calibration.json")).items()}
         pred.save("models/live")
         print("saved models/live")
 

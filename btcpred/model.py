@@ -9,7 +9,7 @@ For each horizon h in 1..5 minutes it holds
 "now" = DELAY seconds after the close of the last 1-minute candle (default 2s), because
 that is when a real bot can act; see reports for how the edge decays with delay.
 """
-import json, os, pickle
+import gzip, json, os
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
@@ -49,6 +49,7 @@ class BTCPredictor:
         self.vol_models = {}   # h -> booster
         self.resid_q = {}      # h -> quantiles of standardized residual z / scale
         self.conf_q = {}       # h -> percentiles of |P(up) - 0.5| on recent training data
+        self.calib = {}        # h -> {"temp": a, "band_k": k}: logit(p) *= a ; scale *= k
         self.meta = {}
 
     # ------------------------------------------------------------------ train
@@ -98,8 +99,13 @@ class BTCPredictor:
         out = {}
         for h in HORIZONS:
             ps = np.mean([m.predict(Xv) for m in self.dir_models[h]], axis=0)
+            c = self.calib.get(h, {})
+            a = c.get("temp", 1.0)
+            if a != 1.0:  # averaging probabilities shrinks them toward 0.5; undo with a temperature
+                lg = np.log(ps / (1 - ps))
+                ps = 1 / (1 + np.exp(-a * lg))
             out[f"p_up_{h}"] = ps
-            out[f"scale_{h}"] = self._scale(self.vol_models[h], Xv)
+            out[f"scale_{h}"] = self._scale(self.vol_models[h], Xv) * c.get("band_k", 1.0)
         return pd.DataFrame(out, index=X.index)
 
     def describe(self, X_row, price_now, sigma_now):
@@ -125,14 +131,18 @@ class BTCPredictor:
     # ------------------------------------------------------------------- io
     def save(self, folder):
         os.makedirs(folder, exist_ok=True)
+        def dump(m, name):
+            with gzip.open(os.path.join(folder, name + ".txt.gz"), "wt") as f:
+                f.write(m.model_to_string())
         for h, ms in self.dir_models.items():
             for i, m in enumerate(ms):
-                m.save_model(os.path.join(folder, f"dir_h{h}_{i}.txt"))
+                dump(m, f"dir_h{h}_{i}")
         for h, m in self.vol_models.items():
-            m.save_model(os.path.join(folder, f"vol_h{h}.txt"))
+            dump(m, f"vol_h{h}")
         json.dump(dict(features=self.features, delay=self.delay, windows=list(self.windows),
                        resid_q={str(k): v for k, v in self.resid_q.items()},
-                       conf_q={str(k): v for k, v in self.conf_q.items()}, meta=self.meta),
+                       conf_q={str(k): v for k, v in self.conf_q.items()},
+                       calib={str(k): v for k, v in self.calib.items()}, meta=self.meta),
                   open(os.path.join(folder, "predictor.json"), "w"), indent=1)
 
     @classmethod
@@ -141,9 +151,12 @@ class BTCPredictor:
         obj = cls(cfg["features"], cfg["delay"], tuple(cfg["windows"]))
         obj.resid_q = {int(k): v for k, v in cfg["resid_q"].items()}
         obj.conf_q = {int(k): v for k, v in cfg.get("conf_q", {}).items()}
+        obj.calib = {int(k): v for k, v in cfg.get("calib", {}).items()}
         obj.meta = cfg["meta"]
+        def read(name):
+            with gzip.open(os.path.join(folder, name + ".txt.gz"), "rt") as f:
+                return lgb.Booster(model_str=f.read())
         for h in HORIZONS:
-            obj.dir_models[h] = [lgb.Booster(model_file=os.path.join(folder, f"dir_h{h}_{i}.txt"))
-                                 for i in range(len(obj.windows))]
-            obj.vol_models[h] = lgb.Booster(model_file=os.path.join(folder, f"vol_h{h}.txt"))
+            obj.dir_models[h] = [read(f"dir_h{h}_{i}") for i in range(len(obj.windows))]
+            obj.vol_models[h] = read(f"vol_h{h}")
         return obj

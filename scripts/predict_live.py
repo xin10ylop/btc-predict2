@@ -25,7 +25,19 @@ PLAIN = {
     "breakout_60": "1h breakout (tends to fail)", "sweep_60": "1h liquidity sweep",
     "impact_expl_15": "flow-driven move 15m (reverts)", "impact_resid_15": "flow-free move 15m",
     "p_flow_15": "perp aggressive flow 15m", "s_flow_15": "spot aggressive flow 15m",
-    "eth_rel_1": "ETH vs BTC last minute", "eth_rel_5": "ETH vs BTC 5m", "minute": "minute-of-hour clock",
+    "eth_rel_1": "ETH vs BTC last minute", "eth_rel_5": "ETH vs BTC 5m", "eth_rel_15": "ETH vs BTC 15m",
+    "minute": "minute-of-hour clock", "min_mod15": "position in quarter-hour", "hour": "hour of day (UTC)",
+    "dow": "day of week", "to_funding": "minutes to funding settlement",
+    "basis_fresh": "fresh perp-spot gap (opened late in the bar)", "basis_vwap_dev60": "perp-spot gap at bar VWAP",
+    "p_close_vs_vwap": "perp close vs its bar VWAP", "s_close_vs_vwap": "spot close vs its bar VWAP",
+    "ret_1": "last-minute move", "ret_2": "2m move", "ret_3": "3m move", "ret_5": "5m move", "ret_240": "4h move",
+    "zlag_1": "previous minute's move", "zlag_2": "move 2 minutes ago",
+    "dist_hi_15": "distance below 15m high", "dist_lo_15": "distance above 15m low",
+    "dist_hi_240": "distance below 4h high", "dist_lo_240": "distance above 4h low",
+    "dist_hi_1440": "distance below 24h high", "dist_lo_1440": "distance above 24h low",
+    "clv": "where the candle closed in its range", "upper_wick": "upper wick", "lower_wick": "lower wick",
+    "vol_ratio_10_60": "volatility rising/falling", "vol_ratio_60_1440": "volatility vs day", "sig_bp": "volatility level",
+    "range_last": "last candle range", "range_5": "5m range",
 }
 
 
@@ -43,21 +55,24 @@ def explain(pred, X_last, h, k=4):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="models/live")
-    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--once", action="store_true", help="one forecast at the next candle close")
+    ap.add_argument("--now", action="store_true", help="with --once: forecast immediately (may be stale)")
     ap.add_argument("--log", default="logs/live_predictions.csv")
     a = ap.parse_args()
     pred = BTCPredictor.load(a.model)
     os.makedirs(os.path.dirname(a.log), exist_ok=True)
     print(f"model trained until {pred.meta.get('trained_until')} | act within ~{pred.delay}s of the candle close")
-    cache = None
+    print("loading history (8000 minutes)...", flush=True)
+    cache = live.fetch_panel(8000)  # warm-up before the first wait, so the first forecast is on time
+    first = True
     while True:
-        if not a.once:  # wake 0.4s after the minute boundary
+        if not (a.once and a.now):  # wake 0.4s after the minute boundary
             now = time.time()
             time.sleep(60 - (now % 60) + 0.4)
         t0 = time.time()
         try:
-            if cache is None:
-                cache = live.fetch_panel(8000)
+            if first and a.once and a.now:
+                pass  # cache is fresh enough
             else:
                 new = live.fetch_panel(5)
                 cache = pd.concat([cache, new])
@@ -71,12 +86,15 @@ def main():
             if a.once:
                 raise
             continue
+        first = False
         bar = X.index[-1]
         last = X.iloc[[-1]]
         f = pred.describe(last, px_now, float(sig.iloc[-1]))
         lag = time.time() - (bar + pd.Timedelta(minutes=1)).timestamp()
         print(f"\n{pd.Timestamp.utcnow():%Y-%m-%d %H:%M:%S} UTC | BTC {px_now:,.2f} | last candle {bar:%H:%M} "
               f"| data age {lag:.1f}s")
+        if lag > 10:
+            print(f"  (data is {lag:.0f}s old; the model assumes you act ~{pred.delay}s after the close, so the 1m edge is mostly gone)")
         print("  horizon  P(up)   confidence      median move   90% range")
         for h in HORIZONS:
             r = f[h]

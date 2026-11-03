@@ -1,0 +1,16 @@
+h=1 window=12m rows=174258 trees=304
+h=1 window=24m rows=348734 trees=197
+h=1 window=36m rows=523527 trees=162
+h=2 window=12m rows=174777 trees=189
+h=2 window=24m rows=349681 trees=209
+h=2 window=36m rows=524989 trees=206
+h=3 window=12m rows=174949 trees=188
+h=3 window=24m rows=349990 trees=187
+h=3 window=36m rows=525453 trees=179
+h=4 window=12m rows=175037 trees=123
+h=4 window=24m rows=350121 trees=130
+h=4 window=36m rows=525646 trees=160
+h=5 window=12m rows=175071 trees=111
+h=5 window=24m rows=350192 trees=118
+h=5 window=36m rows=525739 trees=207
+saved models/live

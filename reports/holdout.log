@@ -1,0 +1,20 @@
+h=1 window=12m rows=174423 trees=133
+h=1 window=24m rows=348801 trees=60
+h=1 window=36m rows=523445 trees=47
+h=2 window=12m rows=174869 trees=142
+h=2 window=24m rows=349724 trees=165
+h=2 window=36m rows=524951 trees=194
+h=3 window=12m rows=175019 trees=127
+h=3 window=24m rows=350012 trees=201
+h=3 window=36m rows=525439 trees=152
+h=4 window=12m rows=175080 trees=106
+h=4 window=24m rows=350127 trees=155
+h=4 window=36m rows=525634 trees=168
+h=5 window=12m rows=175118 trees=92
+h=5 window=24m rows=350187 trees=87
+h=5 window=36m rows=525737 trees=99
+h=1m acc=53.95% auc=0.5566 llskill=47.7bp top10%acc=61.16% top1%acc=66.38% band90cov=87.4% | acc by delay: 0s:54.87 2s:53.95 5s:53.14 10s:52.38 30s:51.27
+h=2m acc=53.21% auc=0.5459 llskill=33.9bp top10%acc=58.99% top1%acc=64.14% band90cov=88.8% | acc by delay: 0s:53.80 2s:53.21 5s:52.76 10s:52.32 30s:51.49
+h=3m acc=52.67% auc=0.5396 llskill=25.3bp top10%acc=57.66% top1%acc=62.08% band90cov=89.2% | acc by delay: 0s:53.13 2s:52.67 5s:52.30 10s:52.01 30s:51.38
+h=4m acc=52.54% auc=0.5377 llskill=22.4bp top10%acc=57.58% top1%acc=60.43% band90cov=89.5% | acc by delay: 0s:52.83 2s:52.54 5s:52.29 10s:52.01 30s:51.48
+h=5m acc=52.44% auc=0.5361 llskill=20.2bp top10%acc=57.24% top1%acc=60.26% band90cov=89.5% | acc by delay: 0s:52.69 2s:52.44 5s:52.27 10s:52.03 30s:51.57
