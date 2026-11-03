@@ -1,6 +1,7 @@
 """The production predictor.
 
-For each horizon h in 1..5 minutes it holds
+Horizons: "s10", "s15" (seconds after acting) and 1..5 (minutes, to the candle close h minutes
+after the last closed candle). For each horizon it holds
   * a direction model  : P(price at close(t+h) > price you can get now), LightGBM binary,
                          averaged over several training windows (temporal ensemble)
   * a scale model      : expected |move| in units of the running EWMA sigma (LightGBM on log|z|)
@@ -14,7 +15,30 @@ import numpy as np
 import pandas as pd
 import lightgbm as lgb
 
-HORIZONS = (1, 2, 3, 4, 5)
+MIN_HORIZONS = (1, 2, 3, 4, 5)       # minutes: target = close of candle t+h
+SEC_HORIZONS = ("s10", "s15")        # seconds: target = price H seconds after acting (close + delay + H)
+HORIZONS = SEC_HORIZONS + MIN_HORIZONS
+
+
+def is_sec(h):
+    return isinstance(h, str) and h.startswith("s")
+
+
+def hkey(k):
+    """JSON keys back to horizon keys: "3" -> 3, "s10" -> "s10"."""
+    return int(k) if str(k).isdigit() else str(k)
+
+
+def h_minutes(h):
+    return int(h[1:]) / 60 if is_sec(h) else h
+
+
+def h_label(h):
+    return f"{h[1:]}s" if is_sec(h) else f"{h}m"
+
+
+def target_col(h, delay):
+    return f"zs{delay}_{h[1:]}" if is_sec(h) else f"zd{delay}_{h}"
 DIR_PARAMS = dict(objective="binary", learning_rate=0.03, num_leaves=31, min_data_in_leaf=3000,
                   feature_fraction=0.7, bagging_fraction=0.5, bagging_freq=1, lambda_l2=10.0,
                   max_bin=127, verbose=-1, num_threads=4)
@@ -42,7 +66,7 @@ def _fit(params, X, y, rounds, seed=0, return_es=False, weight=None):
 class BTCPredictor:
     def __init__(self, features, delay=2, windows=(12, 24, 36), sub=3, hfeatures=None, halflife=None):
         # hfeatures: optional {h: [features]} -- e.g. regime-state features only where they help
-        self.hfeatures = {int(h): list(f) for h, f in (hfeatures or {}).items()}
+        self.hfeatures = {hkey(h): list(f) for h, f in (hfeatures or {}).items()}
         self.base = list(features)  # used by horizons without their own list
         self.features = list(dict.fromkeys(self.base + [f for fl in self.hfeatures.values() for f in fl]))
         self.halflife = halflife  # months; recency weighting of training rows (None = equal weights)
@@ -55,18 +79,21 @@ class BTCPredictor:
         self.conf_q = {}       # h -> percentiles of |P(up) - 0.5| on recent training data
         self.calib = {}        # h -> {"temp": a, "band_k": k}: logit(p) *= a ; scale *= k
         self.track = {}        # h -> recent live-proxy track record (set by online_calibrate)
+        self.flat_tab = {}     # seconds horizons: P(price unchanged) by decile of predicted scale
         self.meta = {}
+        self.horizons = HORIZONS  # horizons this predictor holds (older saved models: minutes only)
 
     # ------------------------------------------------------------------ train
-    def fit(self, X, T, end, verbose=True):
+    def fit(self, X, T, end, verbose=True, horizons=HORIZONS):
         """Train on data strictly before `end` (Timestamp/str)."""
         end = pd.Timestamp(end, tz="UTC") if pd.Timestamp(end).tzinfo is None else pd.Timestamp(end)
         idx = X.index
-        for h in HORIZONS:
+        self.horizons = tuple(horizons)
+        for h in self.horizons:
             fh = self.feats(h)
-            z = T[f"zd{self.delay}_{h}"].values
+            z = T[target_col(h, self.delay)].values
             ok = np.isfinite(z)
-            stop = end - pd.Timedelta(minutes=h + 1)
+            stop = end - pd.Timedelta(minutes=int(np.ceil(h_minutes(h))) + 1)
             self.dir_models[h] = []
             for w in self.windows:
                 tr = np.flatnonzero(ok & (z != 0) & (idx >= end - pd.DateOffset(months=w)) & (idx < stop))[::self.sub]
@@ -92,8 +119,12 @@ class BTCPredictor:
             scale = self._scale(vm_es, X[fh].values[tail])
             e = z[tail] / scale
             self.resid_q[h] = (np.quantile(e, QGRID) - np.median(e)).tolist()
+            if is_sec(h):  # 10-18% of 10s windows have no price change: measure P(flat) vs predicted scale
+                edges = np.quantile(scale, np.linspace(0, 1, 11))
+                b = np.clip(np.searchsorted(edges, scale, side="right") - 1, 0, 9)
+                self.flat_tab[h] = dict(edges=edges.tolist(), flat=[float(np.mean(z[tail][b == i] == 0)) for i in range(10)])
         self.meta = dict(trained_until=str(end), delay_s=self.delay, windows=self.windows,
-                         n_features={h: len(self.feats(h)) for h in HORIZONS}, halflife=self.halflife)
+                         n_features={str(h): len(self.feats(h)) for h in self.horizons}, halflife=self.halflife)
         return self
 
     def feats(self, h):
@@ -109,7 +140,7 @@ class BTCPredictor:
         """Vectorised predictions for every row of X. Returns a DataFrame.
         raw=True skips the probability temperature (used for online recalibration)."""
         out = {}
-        for h in HORIZONS:
+        for h in self.horizons:
             Xv = X[self.feats(h)].values
             ps = np.mean([m.predict(Xv) for m in self.dir_models[h]], axis=0)
             c = self.calib.get(h, {})
@@ -126,8 +157,8 @@ class BTCPredictor:
         sigma_now: current 1-minute EWMA volatility (log units) from make_features."""
         f = self.predict_frame(X_row.iloc[[-1]]).iloc[0]
         res = {}
-        for h in HORIZONS:
-            unit = f[f"scale_{h}"] * sigma_now * np.sqrt(h)    # log-return per residual unit
+        for h in self.horizons:
+            unit = f[f"scale_{h}"] * sigma_now * np.sqrt(h_minutes(h))   # log-return per residual unit
             Q = np.array(self.resid_q[h])                       # centred residual quantiles
             p = float(f[f"p_up_{h}"])
             # location shift delta such that P(e + delta > 0) = p  (fixed shape, shifted)
@@ -135,7 +166,13 @@ class BTCPredictor:
             band = {f"q{int(round(qq*100))}": float((np.interp(qq, QGRID, Q) + delta) * unit * 1e4) for qq in QS}
             cq = self.conf_q.get(h)
             pct = float(np.interp(abs(p - 0.5), cq, np.linspace(0, 100, 101))) if cq else float("nan")
-            res[h] = dict(p_up=p, confidence_pct=pct, median_move_bp=float(delta * unit * 1e4), band_bp=band,
+            p_flat = float("nan")
+            if h in self.flat_tab:
+                raw_scale = f[f"scale_{h}"] / self.calib.get(h, {}).get("band_k", 1.0)
+                t = self.flat_tab[h]
+                i = int(np.clip(np.searchsorted(t["edges"], raw_scale, side="right") - 1, 0, 9))
+                p_flat = t["flat"][i]
+            res[h] = dict(p_up=p, p_flat=p_flat, confidence_pct=pct, median_move_bp=float(delta * unit * 1e4), band_bp=band,
                           price_median=float(price_now * np.exp(delta * unit)),
                           price_q05=float(price_now * np.exp(band["q5"] / 1e4)),
                           price_q95=float(price_now * np.exp(band["q95"] / 1e4)))
@@ -163,7 +200,7 @@ class BTCPredictor:
         days = round((X.index[-1] - X.index[0]).total_seconds() / 86400, 1)
         F = self.predict_frame(X, raw=True)
         c = close.reindex(X.index)
-        for h in HORIZONS:
+        for h in [h for h in self.horizons if not is_sec(h)]:  # seconds horizons keep static calibration
             fut = close.shift(-h).reindex(X.index)
             ok = (fut.notna() & c.notna() & (fut != c) & F[f"p_up_{h}"].notna()).values
             fh = self.feats(h)
@@ -205,7 +242,8 @@ class BTCPredictor:
                        hfeatures={str(k): v for k, v in self.hfeatures.items()}, halflife=self.halflife,
                        resid_q={str(k): v for k, v in self.resid_q.items()},
                        conf_q={str(k): v for k, v in self.conf_q.items()},
-                       calib={str(k): v for k, v in self.calib.items()}, meta=self.meta),
+                       calib={str(k): v for k, v in self.calib.items()},
+                       flat_tab={str(k): v for k, v in self.flat_tab.items()}, meta=self.meta),
                   open(os.path.join(folder, "predictor.json"), "w"), indent=1)
 
     @classmethod
@@ -213,14 +251,16 @@ class BTCPredictor:
         cfg = json.load(open(os.path.join(folder, "predictor.json")))
         obj = cls(cfg["features"], cfg["delay"], tuple(cfg["windows"]), hfeatures=cfg.get("hfeatures"),
                   halflife=cfg.get("halflife"))
-        obj.resid_q = {int(k): v for k, v in cfg["resid_q"].items()}
-        obj.conf_q = {int(k): v for k, v in cfg.get("conf_q", {}).items()}
-        obj.calib = {int(k): v for k, v in cfg.get("calib", {}).items()}
+        obj.resid_q = {hkey(k): v for k, v in cfg["resid_q"].items()}
+        obj.conf_q = {hkey(k): v for k, v in cfg.get("conf_q", {}).items()}
+        obj.calib = {hkey(k): v for k, v in cfg.get("calib", {}).items()}
+        obj.flat_tab = {hkey(k): v for k, v in cfg.get("flat_tab", {}).items()}
+        obj.horizons = tuple(h for h in HORIZONS if h in obj.resid_q)
         obj.meta = cfg["meta"]
         def read(name):
             with gzip.open(os.path.join(folder, name + ".txt.gz"), "rt") as f:
                 return lgb.Booster(model_str=f.read())
-        for h in HORIZONS:
+        for h in obj.horizons:
             obj.dir_models[h] = [read(f"dir_h{h}_{i}") for i in range(len(obj.windows))]
             obj.vol_models[h] = read(f"vol_h{h}")
         return obj

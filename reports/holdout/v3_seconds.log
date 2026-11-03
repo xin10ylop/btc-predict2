@@ -1,0 +1,12 @@
+h=s10 window=12m rows=145935 trees=155
+h=s10 window=24m rows=299178 trees=178
+h=s10 window=36m rows=440465 trees=111
+h=s15 window=12m rows=152578 trees=140
+h=s15 window=24m rows=312005 trees=152
+h=s15 window=36m rows=460613 trees=119
+--- static (raw ensemble) ---
+h=10s acc=56.49% auc=0.5924 llskill=130.8bp top10%acc=66.80% top1%acc=70.47% band90cov=83.4% flat=18.6% | acc by delay: 0s:59.00 2s:56.49 5s:54.48
+h=15s acc=56.06% auc=0.5880 llskill=118.2bp top10%acc=66.63% top1%acc=69.67% band90cov=83.6% flat=14.6% | acc by delay: 0s:58.29 2s:56.06 5s:54.30
+--- with live-style online recalibration (7-day self-check) ---
+h=10s acc=56.49% auc=0.5924 llskill=130.8bp top10%acc=66.80% top1%acc=70.47% band90cov=83.4% flat=18.6% | acc by delay: 0s:59.00 2s:56.49 5s:54.48
+h=15s acc=56.06% auc=0.5880 llskill=118.2bp top10%acc=66.63% top1%acc=69.67% band90cov=83.6% flat=14.6% | acc by delay: 0s:58.29 2s:56.06 5s:54.30

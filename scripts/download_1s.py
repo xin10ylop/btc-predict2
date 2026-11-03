@@ -7,7 +7,7 @@ import numpy as np, pandas as pd, requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from btcpred import paths  # noqa: E402
-OFFSETS = [0, 1, 2, 3, 5, 10, 20, 30]
+OFFSETS = [0, 1, 2, 3, 5, 10, 12, 15, 17, 20, 30]  # 12/15/17: 10s and 15s horizons acting at +2s
 URL = "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1s/BTCUSDT-1s-{m}.zip"
 OUT = str(paths.SEC)
 
@@ -19,7 +19,8 @@ def months(a, b):
 
 def job(m):
     out = f"{OUT}/{m}.parquet"
-    if os.path.exists(out): return m, "cached"
+    if os.path.exists(out) and all(f"px_{d}" in pd.read_parquet(out).columns for d in OFFSETS):
+        return m, "cached"
     r = requests.get(URL.format(m=m), timeout=600)
     if r.status_code != 200: return m, f"HTTP {r.status_code}"
     z = zipfile.ZipFile(io.BytesIO(r.content))

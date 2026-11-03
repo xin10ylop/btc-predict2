@@ -3,7 +3,7 @@ PY ?= python3
 START ?= 2021-01
 END   ?= 2026-10
 
-.PHONY: help install test live once data panel cache holdout calibrate model research-regimes clean-cache
+.PHONY: help install test live once data panel cache holdout calibrate model research-regimes research-seconds clean-cache
 
 help:          ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/'
@@ -45,6 +45,11 @@ research-regimes: ## re-run the regime study (drift, regime performance, stress 
 	$(PY) research/06_regimes/regime_perf.py
 	$(PY) research/06_regimes/stress_zero_fee.py
 	$(PY) research/06_regimes/stress_online.py
+
+research-seconds: ## re-run the 10s/15s study (signals, then feature sets; ~15 min)
+	$(PY) research/02_latency/seconds_horizons.py
+	$(PY) research/04_selection/compare_sets.py s10 research/sets/seconds.json
+	$(PY) research/04_selection/compare_sets.py s15 research/sets/seconds.json
 
 clean-cache:   ## delete the research cache (keeps raw data and the panel)
 	rm -rf data/cache

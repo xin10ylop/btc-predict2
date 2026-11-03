@@ -238,12 +238,15 @@ def make_features(P, families=None):
     return out, sig
 
 
-def make_targets(P, sig, horizons=(1, 5), sec=None, delays=(0, 2, 5, 10, 30)):
+def make_targets(P, sig, horizons=(1, 5), sec=None, delays=(0, 2, 5, 10, 30),
+                 sec_horizons=(10, 15), sec_delays=(0, 2, 5)):
     """Forward log returns of spot close, raw and in sigma units.
 
     z{h}        : close(t) -> close(t+h)                 (theoretical, act at the close)
     zd{d}_{h}   : price(close(t)+d sec) -> close(t+h)     (what you capture acting d seconds late)
-    `sec` is the frame produced by scripts/download_1s.py (px_d columns)."""
+    zs{d}_{H}   : price(close(t)+d sec) -> price(close(t)+d+H sec)   (next H seconds after acting)
+    `sec` is the frame produced by scripts/download_1s.py (px_d columns). Seconds targets are
+    scaled by sigma * sqrt(H/60) so every horizon is in comparable volatility units."""
     s_c = np.log(P["s_close"].astype("float64"))
     T = {}
     for h in horizons:
@@ -254,4 +257,10 @@ def make_targets(P, sig, horizons=(1, 5), sec=None, delays=(0, 2, 5, 10, 30)):
             for d in delays:
                 start = np.log(sec[f"px_{d}"].reindex(P.index))
                 T[f"zd{d}_{h}"] = (s_c.shift(-h) - start) / (sig * np.sqrt(h))
+    if sec is not None:
+        for H in sec_horizons:
+            for d in sec_delays:
+                a, b = f"px_{d}", f"px_{d + H}"
+                if a in sec and b in sec:
+                    T[f"zs{d}_{H}"] = (np.log(sec[b].reindex(P.index)) - np.log(sec[a].reindex(P.index))) / (sig * np.sqrt(H / 60))
     return pd.DataFrame(T, index=P.index)

@@ -1,10 +1,11 @@
 # btc-predict2: guide for agents
 
-You are working on a Bitcoin predictor. Every minute it gives, for the next 1, 2, 3, 4 and
-5 minutes:
+You are working on a Bitcoin predictor. At every 1-minute candle close it gives, for the next
+10 s, 15 s, 1, 2, 3, 4 and 5 minutes:
 * P(up) for Binance BTCUSDT spot,
 * a median move and a 90% price range,
-* the features driving the call.
+* the features driving the call,
+* for 10 s and 15 s, the chance the price does not change at all.
 
 It is built on 2021–2026 Binance data and validated walk-forward on a sealed holdout. This
 file is everything you need to work on it safely. Read it fully before changing anything.
@@ -48,18 +49,28 @@ data/               git-ignored; rebuilt by `make data` and `make cache`
 * **Row convention.** Row t is the candle that *opened* at t. Features at row t use only
   candles up to and including t, so they are known at t's close.
 * **Targets.** `zd{d}_{h}` runs from the price d seconds after the close of t to the close of
-  t+h, divided by the running volatility. **Production trains on d = 2** (when a bot can act).
+  t+h, divided by the running volatility. `zs{d}_{H}` runs from close+d s to close+d+H s, for
+  H = 10, 15. **Production trains on d = 2** (when a bot can act).
+* **Horizon keys** in code are `"s10"`, `"s15"` (seconds) and `1`..`5` (minutes). Use the
+  helpers `is_sec`, `h_minutes`, `h_label` and `target_col` in `model.py`; never assume
+  horizons are ints.
 * **Features** are scale-free: prices in units of the running volatility, volumes relative to
   their own history. Each feature has a *family* (`FAMILY` in `features.py`).
 * **Model.** Per horizon: LightGBM binary classifiers trained on the last 12, 24 and 36 months
-  and averaged; a LightGBM scale model; empirical residual quantiles for bands. The 1-min
-  model adds 9 regime-state features; 2–5 min use the 47 base features (`config/model_design.json`).
+  and averaged; a LightGBM scale model; empirical residual quantiles for bands. Feature sets
+  (`config/model_design.json`):
+  * 1 min: the 47 base features + 9 regime-state features;
+  * 10 s / 15 s: 46 "fast" features (base + regime, without the slow range family);
+  * 2–5 min: the 47 base features.
+* **Seconds horizons** also hold a no-change table: P(price unchanged) by decile of predicted
+  volatility (`flat_tab`).
 * **Calibration.** Averaging makes probabilities timid. The static temperatures and band
   widths in `config/calibration.json` were fitted on the holdout after it was scored.
 * **Live** (`scripts/predict_live.py`): loads 20,000 minutes of history. It self-scores on up
   to 7 days *after the training cutoff* and refits the temperature, hourly: always at 1 min,
-  and at 2–5 min only when the recent edge turned negative (circuit breaker). Each forecast
-  fires about 1.5 s after the candle close.
+  and at 2–5 min only when the recent edge turned negative (circuit breaker). 10 s / 15 s keep
+  their static calibration and are scored one minute later against 1-second candles
+  (`logs/live_seconds.csv`). Each forecast fires about 1.5 s after the candle close.
 
 ## Rules you must not break
 
@@ -117,6 +128,9 @@ Regimes:
   (stress test: −12.7 bp → +4.3 bp at 1 min).
 
 Holdout results, acting 2 s after the close:
+* 10 s: 56.5% accuracy on windows where the price moves (66.8% top-10%); 59.0% acting at the
+  close, 54.5% acting 5 s late;
+* 15 s: 56.1% (66.6% top-10%);
 * 1 min: 53.95% accuracy (61.6% on the top-10% most confident calls);
 * 5 min: 52.44% (57.2% top-10%);
 * every month above 52%.

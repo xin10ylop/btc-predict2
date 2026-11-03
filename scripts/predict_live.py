@@ -13,7 +13,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from btcpred.features import make_features            # noqa: E402
 from btcpred import paths                               # noqa: E402
-from btcpred.model import BTCPredictor, HORIZONS       # noqa: E402
+from btcpred.model import BTCPredictor, h_label, is_sec  # noqa: E402
 from btcpred import live                                # noqa: E402
 
 PLAIN = {
@@ -82,6 +82,27 @@ def explain(pred, X_last, h, k=4):
     return out
 
 
+def score_seconds(pending, path, delay=2):
+    """Outcomes of 10s/15s forecasts made at earlier candle closes: price at close+delay+H vs
+    close+delay, from 1-second candles. Unchanged price -> no call (NaN)."""
+    for bar in sorted(pending):
+        close = bar + pd.Timedelta(minutes=1)
+        if time.time() < close.timestamp() + 20:
+            continue
+        try:
+            px = live.seconds_prices(close, 20)
+        except Exception:
+            continue
+        row = {"bar": bar.isoformat()}
+        for h, p in pending[bar].items():
+            H = int(h[1:])
+            a_, b_ = px.get(delay), px.get(delay + H)
+            row[f"p_up_{h}"] = p
+            row[f"y_{h}"] = np.nan if (a_ is None or b_ is None or a_ == b_) else float(b_ > a_)
+        pd.DataFrame([row]).to_csv(path, mode="a", header=not os.path.exists(path), index=False)
+        del pending[bar]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=str(paths.LIVE_MODEL))
@@ -99,6 +120,8 @@ def main():
     show_track(pred)
     last_recal = time.time()
     first = True
+    pending = {}                                            # bar -> seconds-horizon forecasts awaiting outcome
+    sec_log = os.path.join(os.path.dirname(a.log), "live_seconds.csv")
     while True:
         if not (a.once and a.now):  # wake 0.4s after the minute boundary
             now = time.time()
@@ -134,21 +157,24 @@ def main():
         if lag > 10:
             print(f"  (data is {lag:.0f}s old; the model assumes you act ~{pred.delay}s after the close, so the 1m edge is mostly gone)")
         print("  horizon  P(up)   confidence      median move   90% range")
-        for h in HORIZONS:
+        for h in pred.horizons:
             r = f[h]
             c = r["confidence_pct"]
             tag = "top 10%" if c >= 90 else ("top 25%" if c >= 75 else "      ")
-            print(f"   {h}m     {r['p_up']*100:5.1f}%  {c:5.1f} pct {tag}  {r['median_move_bp']:+6.2f} bp   "
-                  f"{r['price_q05']:,.0f} – {r['price_q95']:,.0f}")
-        for h in (1, 5):
-            print(f"  why {h}m: " + "; ".join(explain(pred, last, h)))
+            flat = f"   no change {r['p_flat']*100:4.1f}%" if is_sec(h) and r["p_flat"] == r["p_flat"] else ""
+            print(f"   {h_label(h):>3}     {r['p_up']*100:5.1f}%  {c:5.1f} pct {tag}  {r['median_move_bp']:+6.2f} bp   "
+                  f"{r['price_q05']:,.0f} – {r['price_q95']:,.0f}{flat}")
+        if any(is_sec(h) for h in pred.horizons):
+            print("  (10s/15s: counted from ~2s after the candle close; P(up) is given that the price moves)")
+        for h in [h for h in ("s10", 1, 5) if h in pred.horizons]:
+            print(f"  why {h_label(h)}: " + "; ".join(explain(pred, last, h)))
         print("  " + regime_line(last))
         if last["clock_class"].iloc[0] == 4 and abs(last["vwap_dev_30"].iloc[0]) > 1.0:
             side = "DOWN" if last["vwap_dev_30"].iloc[0] > 0 else "UP"
             print(f"  ! funding-settlement window and price is {last['vwap_dev_30'].iloc[0]:+.1f} sigma from its 30m VWAP:"
                   f" since 2023 such gaps reverted 3-4x harder than usual (leans {side}; informational, not in the model)")
         row = dict(bar=bar.isoformat(), made_at=pd.Timestamp.now("UTC").isoformat(), price=px_now,
-                   **{f"p_up_{h}": f[h]["p_up"] for h in HORIZONS})
+                   **{f"p_up_{h}": f[h]["p_up"] for h in pred.horizons})
         pd.DataFrame([row]).to_csv(a.log, mode="a", header=not os.path.exists(a.log), index=False)
         # live scorecard: compare logged forecasts with realised closes from the cache
         L = pd.read_csv(a.log)
@@ -161,8 +187,18 @@ def main():
             if ok.sum() >= 10:
                 up = tgt[ok] > L["price"].values[ok]
                 hits[h] = (np.mean((L[f"p_up_{h}"].values[ok] > 0.5) == up), int(ok.sum()))
+        # seconds horizons: score the previous forecasts against 1-second candles
+        if any(is_sec(h) for h in pred.horizons):
+            score_seconds(pending, sec_log)
+            pending[bar] = {h: f[h]["p_up"] for h in pred.horizons if is_sec(h)}
+            if os.path.exists(sec_log):
+                S = pd.read_csv(sec_log)
+                for h in [h for h in pred.horizons if is_sec(h)]:
+                    m = S[f"y_{h}"].notna()
+                    if m.sum() >= 10:
+                        hits[h] = (np.mean((S.loc[m, f"p_up_{h}"] > 0.5) == (S.loc[m, f"y_{h}"] > 0)), int(m.sum()))
         if hits:
-            print("  live scorecard: " + " | ".join(f"{h}m hit {v[0]*100:.1f}% (n={v[1]})" for h, v in hits.items()))
+            print("  live scorecard: " + " | ".join(f"{h_label(h)} hit {v[0]*100:.1f}% (n={v[1]})" for h, v in hits.items()))
         if a.once:
             break
 

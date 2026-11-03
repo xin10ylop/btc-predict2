@@ -7,7 +7,7 @@ import json, os, sys, glob
 import numpy as np, pandas as pd
 from scipy.optimize import minimize_scalar
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from btcpred.model import BTCPredictor, HORIZONS, QGRID   # noqa: E402
+from btcpred.model import BTCPredictor, MIN_HORIZONS, QGRID, target_col, h_label   # noqa: E402
 from btcpred.features import make_features, make_targets   # noqa: E402
 from btcpred import paths                                   # noqa: E402
 from btcpred.data import load_panel, load_sec_offsets       # noqa: E402
@@ -17,12 +17,12 @@ pred = BTCPredictor.load(folder)
 pred.calib = {}
 P = load_panel()
 X, sig = make_features(P)
-T = make_targets(P, sig, horizons=HORIZONS, sec=load_sec_offsets(), delays=(pred.delay,))
+T = make_targets(P, sig, horizons=MIN_HORIZONS, sec=load_sec_offsets(), delays=(pred.delay,), sec_delays=(pred.delay,))
 m = (X.index >= pd.Timestamp(a, tz="UTC")) & (X.index < pd.Timestamp(b, tz="UTC"))
 F = pred.predict_frame(X[m])
 out = {}
-for h in HORIZONS:
-    z = T[f"zd{pred.delay}_{h}"][m].values
+for h in pred.horizons:
+    z = T[target_col(h, pred.delay)][m].values
     ok = np.isfinite(z) & (z != 0)
     p = np.clip(F[f"p_up_{h}"].values[ok], 1e-6, 1 - 1e-6)
     y = (z[ok] > 0).astype(float)
@@ -37,6 +37,9 @@ for h in HORIZONS:
     cov = lambda k: np.mean((z[ok] >= lo * sc * k) & (z[ok] <= hi * sc * k))
     ks = np.linspace(0.8, 1.5, 71); band_k = float(ks[np.argmin([abs(cov(k) - 0.90) for k in ks])])
     out[h] = {"temp": round(temp, 4), "band_k": round(band_k, 4)}
-    print(h, out[h], f"nll gain {(nll(1.0) - nll(temp)) * 1e4:.2f}bp  coverage {cov(1.0)*100:.1f}% -> {cov(band_k)*100:.1f}%")
-json.dump({str(k): v for k, v in out.items()}, open(paths.CALIBRATION, "w"), indent=1)
+    print(h_label(h), out[h], f"nll gain {(nll(1.0) - nll(temp)) * 1e4:.2f}bp  coverage {cov(1.0)*100:.1f}% -> {cov(band_k)*100:.1f}%")
+# merge: horizons not in this model folder keep their existing calibration
+old = json.load(open(paths.CALIBRATION)) if paths.CALIBRATION.exists() else {}
+old.update({str(k): v for k, v in out.items()})
+json.dump(old, open(paths.CALIBRATION, "w"), indent=1)
 print(f"wrote {paths.CALIBRATION}")

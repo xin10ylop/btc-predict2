@@ -73,3 +73,23 @@ def fetch_panel(n=8000):
 
 def spot_price_now():
     return float(_get("spot", "/api/v3/ticker/price", {"symbol": "BTCUSDT"})["price"])
+
+
+def seconds_prices(close_ts, n=20):
+    """Spot price at close_ts + d seconds for d = 1..n (from 1-second klines).
+    Returns {d: price}. The 1s candle opening at close_ts + (d-1) s closes at close_ts + d s."""
+    start = int(pd.Timestamp(close_ts).timestamp() * 1000)
+    rows = _get("spot", "/api/v3/klines", {"symbol": "BTCUSDT", "interval": "1s", "startTime": start, "limit": n})
+    px = {}
+    for r in rows:
+        d = (int(r[0]) - start) // 1000 + 1
+        if 1 <= d <= n:
+            px[d] = float(r[4])
+    # seconds without trades have no candle: carry the last price forward
+    last = None
+    for d in range(1, n + 1):
+        if d in px:
+            last = px[d]
+        elif last is not None:
+            px[d] = last
+    return px

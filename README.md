@@ -1,12 +1,19 @@
-# btc-predict2: a latency-aware Bitcoin predictor for the next 1–5 minutes
+# btc-predict2: a latency-aware Bitcoin predictor for the next 10 seconds to 5 minutes
 
-Every minute this predicts, for horizons of 1, 2, 3, 4 and 5 minutes:
+At every 1-minute candle close this predicts, for the next 10 and 15 seconds and the next
+1, 2, 3, 4 and 5 minutes:
 
 * **P(up)**: the probability BTC/USDT will be higher than the price you can get *now*,
   where "now" means 2 seconds after the last 1-minute candle closed (when a bot can act);
 * a **median move** and a **90% price range** from a separate volatility model;
 * the **drivers** behind each call (per-feature contributions), so you can see *why* it leans
-  up or down.
+  up or down;
+* for 10 and 15 seconds, also the chance the price **does not change at all** (13–18% of
+  10-second windows).
+
+The 10 s / 15 s forecasts cover the first seconds after each candle close, because the inputs
+are 1-minute candles. Forecasting every 10 seconds all minute long would need second-by-second
+perp data.
 
 It is built from what holds up out of sample on 2021–2026 Binance data. Some well-known
 ideas did not hold up; the tests behind every claim are under `research/`.
@@ -18,13 +25,20 @@ Scored once, by the locked model. "Act +2 s" means the move is measured from the
 
 | Horizon | Accuracy | AUC | Top-10% most confident | Top-1% | If you act at +0 s / +30 s |
 |---|---|---|---|---|---|
+| next 10 s ¹ | **56.49%** | 0.592 | **66.8%** | 70.5% | 59.0% / (+5 s) 54.5% |
+| next 15 s ¹ | **56.06%** | 0.588 | **66.6%** | 69.7% | 58.3% / (+5 s) 54.3% |
 | next 1 min | **53.95%** | 0.557 | **61.2%** | 66.4% | 54.9% / 51.3% |
 | next 2 min | 53.21% | 0.546 | 59.0% | 64.1% | 53.8% / 51.5% |
 | next 3 min | 52.67% | 0.540 | 57.7% | 62.1% | 53.1% / 51.4% |
 | next 4 min | 52.54% | 0.538 | 57.6% | 60.4% | 52.8% / 51.5% |
 | next 5 min | **52.44%** | 0.536 | **57.2%** | 60.3% | 52.7% / 51.6% |
 
-* Every holdout month beat 52% at 1 minute (range 52.0–54.9%) and at 5 minutes (52.0–52.8%).
+¹ Added later. The design was chosen on the 2023 – April 2026 folds, then these targets were
+scored once on the same holdout months. Accuracy counts only windows where the price moved
+(it stayed flat in 18.6% of 10-second and 14.6% of 15-second windows).
+
+* Every holdout month beat 52% at 1 minute (range 52.0–54.9%) and at 5 minutes (52.0–52.8%),
+  and 53% at 10 and 15 seconds (53.4–58.1%).
 * The holdout matched or beat the 2023–2026 walk-forward (1 min: 53.3%, 5 min: 52.5%), so
   there is no sign of overfitting.
 * At 5-minute-aligned windows (:00, :05, ..., the "up or down in 5 minutes" setup) the
@@ -43,12 +57,15 @@ Scored once, by the locked model. "Act +2 s" means the move is measured from the
 * The edge is worth most where the payoff depends only on direction (up/down prediction
   markets), or for **timing an order you were going to place anyway**: buy in the
   minute the model expects to be cheaper.
-* **Speed matters.** The 1-minute edge falls from 54.9% acting at the close to 51.3% acting
-  30 s late. The 5-minute edge is far more robust (52.7% → 51.6%).
+* **Speed matters.** The 10-second edge falls from 59.0% acting at the close to 56.5% at +2 s
+  and 54.5% at +5 s. The 1-minute edge falls from 54.9% to 51.3% acting 30 s late. The
+  5-minute edge is far more robust (52.7% → 51.6%).
+* The shortest horizons are the most accurate and the least profitable per call: a 10-second
+  move is about 1–2 bp, so even 70% accuracy is worth about 0.4 bp.
 * Markets change. The live loop scores every forecast it makes (`logs/live_predictions.csv`),
   so you can see whether the edge is still there.
 
-## What actually moves Bitcoin over 1–5 minutes
+## What actually moves Bitcoin over 10 seconds to 5 minutes
 
 What follows comes from walk-forward tests on 2021–2026 data. A feature family stays only
 if dropping it hurts out of sample in most folds. Scripts are in `research/`.
@@ -115,6 +132,15 @@ information.
 **9. Training on several history lengths beats picking one.** Averaging models trained on
 the last 12, 24 and 36 months beat each single window at both horizons, in log-loss and in
 the worst fold.
+
+**10. At 10–15 seconds only the fast signals matter, and they are stronger there.** Rank IC
+of the perp–spot gap, acting 2 s after the close: 10.6% for the next 10 s, 10.0% for 15 s,
+7.6% for 1 minute. Less noise piles up in a shorter window. Mean reversion is about zero at
+this scale. Regime features won 7/7 folds at 10 s and 5/7 at 15 s, and the range family was
+dropped there (it won only 1/7). Both seconds models use 46 features. The price does not
+move at all in 13–18% of 10-second windows since 2023 (about 25% when the market is calm,
+against 2–4% in the zero-fee era), so the live tool reports that chance separately.
+`research/02_latency/seconds_horizons.py` and `make research-seconds` hold the tests.
 
 ## Regime changes
 
@@ -200,28 +226,34 @@ perp data comes from `fapi.binance.com`, or `www.binance.com/fapi` where that ho
 geo-blocked. `make once` prints a single forecast at the next candle close, and `make test`
 runs the offline tests (no lookahead, live parity, model sanity) in about 3 seconds.
 
-Real output (`make once`, 2026-11-03):
+Real output (`make live`, 2026-11-03):
 
 ```
-  self-check, last 2.6 days: 1m hit 55.2% skill +82bp temp 1.21* | 2m hit 52.6% skill +33bp temp 1.13 | 3m hit 52.3% skill +16bp temp 1.07 | 4m hit 51.8% skill +6bp temp 1.14 | 5m hit 52.3% skill +24bp temp 1.22
+  self-check, last 2.6 days: 1m hit 55.2% skill +81bp temp 1.21* | 2m hit 52.7% skill +33bp temp 1.13 | 3m hit 52.4% skill +16bp temp 1.07 | 4m hit 52.1% skill +7bp temp 1.14 | 5m hit 52.5% skill +26bp temp 1.22
   (* = temperature refitted on this self-check window; 1m always, other horizons only when their edge broke)
 
-2026-11-03 14:11:01 UTC | BTC 77,220.01 | last candle 14:10 | data age 1.6s
+2026-11-03 14:56:01 UTC | BTC 77,346.00 | last candle 14:55 | data age 1.7s
   horizon  P(up)   confidence      median move   90% range
-   1m      51.8%   29.8 pct          +0.00 bp   77,099 – 77,344
-   2m      54.2%   72.8 pct          +0.61 bp   77,084 – 77,370
-   3m      51.9%   42.2 pct          +0.31 bp   77,064 – 77,387
-   4m      52.1%   53.0 pct          +0.56 bp   77,038 – 77,417
-   5m      51.7%   43.9 pct          +0.48 bp   76,996 – 77,458
-  why 1m: + fresh perp-spot gap (opened late in the bar) (+0.19); + perp-vs-spot gap (perp leads) (+0.06); - perp close vs its bar VWAP (-0.20); - perp-vs-spot gap change (+0.11)
-  why 5m: + distance below 1h high (+1.42); + fresh perp-spot gap (opened late in the bar) (+0.19); - distance below 24h high (+0.40); - day of week (+1.00)
-  regime: volatility normal for this week (-0.04) | volume normal | perp-lead last 24h weak/absent (+0.039)
+   10s      51.6%   15.7 pct          -0.00 bp   77,242 – 77,449   no change  5.1%
+   15s      51.8%   20.0 pct          -0.00 bp   77,241 – 77,453   no change  3.2%
+    1m      50.7%   11.6 pct          +0.00 bp   77,225 – 77,469
+    2m      51.3%   27.4 pct          +0.01 bp   77,188 – 77,510
+    3m      50.5%   11.9 pct          +0.03 bp   77,178 – 77,520
+    4m      50.2%    5.3 pct          +0.03 bp   77,152 – 77,547
+    5m      50.4%   10.2 pct          +0.08 bp   77,114 – 77,586
+  (10s/15s: counted from ~2s after the candle close; P(up) is given that the price moves)
+  why 10s: + perp-vs-spot gap (perp leads) (+0.17); + perp close vs its bar VWAP (+0.56); - volatility level (+8.26); + perp-vs-spot gap change (+0.20)
+  why 1m: + perp-vs-spot gap (perp leads) (+0.17); - where the candle closed in its range (+0.64); - perp-lead strength, last 24h (+0.04); - volatility rising/falling (+0.13)
+  why 5m: + perp-vs-spot gap (perp leads) (+0.17); + fresh perp-spot gap (opened late in the bar) (+0.09); + distance above 24h low (+0.40); - distance below 1h high (+0.29)
+  regime: volatility normal for this week (-0.03) | volume normal | perp-lead last 24h normal (+0.041)
 ```
 
 * `confidence` is the percentile of this call's conviction among the model's recent calls.
   Most minutes sit near 50%, which is correct: the model only leans when it has a reason.
 * The `self-check` line is the model scoring itself on minutes it never trained on.
-* After 10 or more forecasts, a `live scorecard` line reports the realised hit rate.
+* After 10 or more forecasts, a `live scorecard` line reports the realised hit rate. The
+  10 s / 15 s forecasts are scored one minute later against 1-second candles
+  (`logs/live_seconds.csv`).
 
 Rebuild everything from scratch (about 2 GB download; roughly an hour on 4 cores):
 

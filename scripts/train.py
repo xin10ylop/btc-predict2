@@ -12,18 +12,20 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from btcpred.features import make_features, make_targets, FAMILY   # noqa: E402
-from btcpred.model import BTCPredictor, HORIZONS                    # noqa: E402
+from btcpred.model import (BTCPredictor, HORIZONS, MIN_HORIZONS, is_sec, hkey,  # noqa: E402
+                           h_minutes, h_label, target_col)
 from btcpred.validate import metrics, HOLDOUT_START                 # noqa: E402
 from btcpred import paths                                           # noqa: E402
 from btcpred.data import load_panel, load_sec_offsets               # noqa: E402
 
-DELAYS = (0, 2, 5, 10, 30)
+DELAYS = (0, 2, 5, 10, 30)       # minute horizons are scored acting 0..30 s late
+SEC_DELAYS = (0, 2, 5)           # seconds horizons: acting 0..5 s late
 
 
 def load_all():
     P = load_panel()
     X, sig = make_features(P)
-    T = make_targets(P, sig, horizons=HORIZONS, sec=load_sec_offsets(), delays=DELAYS)
+    T = make_targets(P, sig, horizons=MIN_HORIZONS, sec=load_sec_offsets(), delays=DELAYS)
     return P, X, T, sig
 
 
@@ -33,7 +35,7 @@ def online_recal_sim(pred, F, Xh, close, days=7):
     from scipy.optimize import minimize_scalar
     out = F.copy()
     day = Xh.index.floor("D"); udays = day.unique()
-    for h in HORIZONS:
+    for h in [h for h in pred.horizons if not is_sec(h)]:   # seconds horizons: static calibration live
         p = np.clip(F[f"p_up_{h}"].values, 1e-6, 1 - 1e-6); lg = np.log(p / (1 - p))
         c0 = close.reindex(Xh.index).values; c1 = close.shift(-h).reindex(Xh.index).values
         ok = np.isfinite(c0) & np.isfinite(c1) & (c0 != c1); y = (c1 > c0).astype(float)
@@ -54,20 +56,22 @@ def evaluate(pred, X, T, start, end, out_json, F=None):
     Xh, Th = X[msk], T[msk]
     F = pred.predict_frame(Xh) if F is None else F
     rep = {"period": [str(start), str(end)], "horizons": {}}
-    for h in HORIZONS:
+    for h in pred.horizons:
         hr = {}
         p = F[f"p_up_{h}"].values
-        for d in DELAYS:
-            z = Th[f"zd{d}_{h}"].values
+        delays = SEC_DELAYS if is_sec(h) else DELAYS
+        for d in delays:
+            z = Th[target_col(h, d)].values
             ok = np.isfinite(z) & (z != 0)
             m = metrics(p[ok], (z[ok] > 0).astype(int), z[ok])
             hr[f"delay_{d}s"] = {k: float(v) for k, v in m.items()}
         # selective accuracy at the production delay
-        z = Th[f"zd{pred.delay}_{h}"].values
+        z = Th[target_col(h, pred.delay)].values
+        hr["flat_share"] = float(np.mean(z[np.isfinite(z)] == 0))   # price unchanged over the horizon
         ok = np.isfinite(z) & (z != 0)
         conf = np.abs(p[ok] - 0.5)
         hit = (p[ok] > 0.5) == (z[ok] > 0)
-        raw_bp = z[ok] * Xh["sig_bp"].values[ok] * np.sqrt(h)
+        raw_bp = z[ok] * Xh["sig_bp"].values[ok] * np.sqrt(h_minutes(h))
         side = np.sign(p[ok] - 0.5)
         sel = {}
         for cov in (1.0, 0.5, 0.25, 0.1, 0.05, 0.01):
@@ -93,12 +97,12 @@ def evaluate(pred, X, T, start, end, out_json, F=None):
         if h == 5:
             al = (Xh.index[ok].minute % 5) == 4
             hr["aligned_5m_windows_acc"] = float(hit[al].mean())
-        rep["horizons"][h] = hr
+        rep["horizons"][str(h)] = hr
         d2 = hr[f"delay_{pred.delay}s"]
-        print(f"h={h}m acc={d2['acc']*100:.2f}% auc={d2['auc']:.4f} llskill={d2['ll_skill_bp']:.1f}bp "
+        print(f"h={h_label(h)} acc={d2['acc']*100:.2f}% auc={d2['auc']:.4f} llskill={d2['ll_skill_bp']:.1f}bp "
               f"top10%acc={sel['10%']['acc']*100:.2f}% top1%acc={sel['1%']['acc']*100:.2f}% "
-              f"band90cov={hr['band90_coverage']*100:.1f}% | acc by delay: " +
-              " ".join(f"{d}s:{hr[f'delay_{d}s']['acc']*100:.2f}" for d in DELAYS), flush=True)
+              f"band90cov={hr['band90_coverage']*100:.1f}% flat={hr['flat_share']*100:.1f}% | acc by delay: " +
+              " ".join(f"{d}s:{hr[f'delay_{d}s']['acc']*100:.2f}" for d in delays), flush=True)
     json.dump(rep, open(out_json, "w"), indent=1)
     return rep
 
@@ -108,14 +112,17 @@ def main():
     ap.add_argument("--mode", choices=["holdout", "live"], required=True)
     ap.add_argument("--design", default=str(paths.DESIGN))
     ap.add_argument("--windows", default="12,24,36")
+    ap.add_argument("--horizons", default=",".join(str(h) for h in HORIZONS),
+                    help="comma list, e.g. s10,s15 (holdout mode: score only these)")
     a = ap.parse_args()
     P, X, T, sig = load_all()
     design = json.load(open(a.design))
     windows = tuple(int(w) for w in a.windows.split(","))
+    horizons = tuple(hkey(h) for h in a.horizons.split(","))
     pred = BTCPredictor(design["base"], delay=2, windows=windows, hfeatures=design.get("hfeatures"),
                         halflife=design.get("halflife"))
     if a.mode == "holdout":
-        pred.fit(X, T, HOLDOUT_START)
+        pred.fit(X, T, HOLDOUT_START, horizons=horizons)
         pred.save(paths.HOLDOUT_MODEL)
         paths.ensure(paths.HOLDOUT_REPORTS)
         a0, b0 = pd.Timestamp(HOLDOUT_START, tz="UTC"), X.index[-1] + pd.Timedelta(minutes=1)
@@ -126,9 +133,9 @@ def main():
         Fo = online_recal_sim(pred, pred.predict_frame(X[msk], raw=True), X[msk], P["s_close"])
         evaluate(pred, X, T, a0, b0, paths.HOLDOUT_REPORTS / "latest_online.json", F=Fo)
     else:
-        pred.fit(X, T, X.index[-1] - pd.Timedelta(minutes=10))
+        pred.fit(X, T, X.index[-1] - pd.Timedelta(minutes=10), horizons=horizons)
         if paths.CALIBRATION.exists():  # fitted on the holdout after it was scored
-            pred.calib = {int(k): v for k, v in json.load(open(paths.CALIBRATION)).items()}
+            pred.calib = {hkey(k): v for k, v in json.load(open(paths.CALIBRATION)).items()}
         pred.save(paths.LIVE_MODEL)
         print(f"saved {paths.LIVE_MODEL}")
 

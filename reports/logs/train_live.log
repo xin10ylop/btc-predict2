@@ -1,3 +1,9 @@
+h=s10 window=12m rows=147501 trees=254
+h=s10 window=24m rows=295507 trees=364
+h=s10 window=36m rows=446229 trees=313
+h=s15 window=12m rows=153773 trees=357
+h=s15 window=24m rows=308470 trees=242
+h=s15 window=36m rows=465946 trees=190
 h=1 window=12m rows=174258 trees=170
 h=1 window=24m rows=348734 trees=209
 h=1 window=36m rows=523527 trees=307
@@ -13,4 +19,4 @@ h=4 window=36m rows=525646 trees=160
 h=5 window=12m rows=175071 trees=111
 h=5 window=24m rows=350192 trees=118
 h=5 window=36m rows=525739 trees=207
-saved models/live
+saved /home/user/btc-predict2/models/live
