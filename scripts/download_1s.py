@@ -1,12 +1,15 @@
 """Download Binance spot 1s klines month by month and reduce them to the price at
 +d seconds after every minute close (d in OFFSETS). Raw files are discarded.
-Output: data/sec_offsets.parquet indexed by the 1m bar open time t; column px_d =
+Output: data/sec/YYYY-MM.parquet indexed by the 1m bar open time t; column px_d =
 spot price at (t + 60s + d) i.e. d seconds after bar t closed (px_0 == bar close)."""
 import io, os, sys, zipfile, concurrent.futures as cf
 import numpy as np, pandas as pd, requests
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from btcpred import paths  # noqa: E402
 OFFSETS = [0, 1, 2, 3, 5, 10, 20, 30]
 URL = "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1s/BTCUSDT-1s-{m}.zip"
-OUT = "data/sec"
+OUT = str(paths.SEC)
 
 def months(a, b):
     y, m = map(int, a.split("-")); ey, em = map(int, b.split("-"))

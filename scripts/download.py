@@ -5,6 +5,9 @@ Usage: python scripts/download.py --start 2021-01 --end 2026-10
 import argparse, os, sys, io, zipfile, concurrent.futures as cf
 import requests
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from btcpred import paths  # noqa: E402
+
 BASE = "https://data.binance.vision/data"
 DATASETS = {
     # name: (path template, filename template)
@@ -48,7 +51,7 @@ def main():
     ap.add_argument("--start", default="2021-01")
     ap.add_argument("--end", default="2026-10")
     ap.add_argument("--datasets", default=",".join(DATASETS))
-    ap.add_argument("--out", default="data/raw")
+    ap.add_argument("--out", default=str(paths.RAW))
     a = ap.parse_args()
     jobs = []
     for ds in a.datasets.split(","):

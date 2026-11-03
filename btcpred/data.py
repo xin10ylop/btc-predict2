@@ -8,6 +8,8 @@ import glob, os
 import numpy as np
 import pandas as pd
 
+from . import paths
+
 KCOLS = ["open_time", "open", "high", "low", "close", "volume", "close_time",
          "quote_volume", "count", "taker_buy_volume", "taker_buy_quote_volume", "ignore"]
 
@@ -45,7 +47,7 @@ def load_funding(folder):
     return d[~d.index.duplicated(keep="last")]
 
 
-def build_panel(raw="data/raw", out="data/panel.parquet"):
+def build_panel(raw=paths.RAW, out=paths.PANEL):
     spot = load_klines(f"{raw}/spot_1m").add_prefix("s_")
     perp = load_klines(f"{raw}/perp_1m").add_prefix("p_")
     prem = load_klines(f"{raw}/premium_1m")[["open", "high", "low", "close"]].add_prefix("pi_")
@@ -68,6 +70,27 @@ def build_panel(raw="data/raw", out="data/panel.parquet"):
     panel = panel.astype({c: "float32" for c in panel.columns if c not in ("s_missing", "p_missing")})
     panel.to_parquet(out)
     return panel
+
+
+def load_panel(columns=None, before=None):
+    """The aligned 1-minute panel; `before` (e.g. HOLDOUT_START) cuts it."""
+    P = pd.read_parquet(paths.PANEL, columns=columns)
+    return P[P.index < before] if before is not None else P
+
+
+def load_sec_offsets():
+    """Spot price d seconds after every minute close (columns px_0, px_1, ...), all months."""
+    files = sorted(glob.glob(str(paths.SEC / "*.parquet")))
+    S = pd.concat([pd.read_parquet(f) for f in files])
+    return S[~S.index.duplicated()].sort_index()
+
+
+def load_dev(columns=None, targets=None):
+    """Research cache: features X, targets T and the feature->family map (development period)."""
+    X = pd.read_parquet(paths.X_DEV, columns=columns)
+    T = pd.read_parquet(paths.T_DEV, columns=targets)
+    fam = pd.read_csv(paths.FAMILIES, index_col=0).iloc[:, 0].to_dict()
+    return X, T, fam
 
 
 if __name__ == "__main__":

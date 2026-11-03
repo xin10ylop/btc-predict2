@@ -1,8 +1,9 @@
+# data is downloaded/rebuilt (`make data`, `make cache`); never commit it
 data/
-__pycache__/
-*.pyc
-*.parquet
-models/*.tmp
-.ipynb_checkpoints/
 logs/
 models/holdout/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/

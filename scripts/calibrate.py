@@ -1,5 +1,5 @@
 """Fit per-horizon probability temperature and band width on a period the model did not
-train on (used once, on the sealed holdout, AFTER it was scored). Writes reports/calibration.json.
+train on (used once, on the sealed holdout, AFTER it was scored). Writes config/calibration.json.
 
     python scripts/calibrate.py models/holdout 2026-05-01 2026-11-01
 """
@@ -9,15 +9,15 @@ from scipy.optimize import minimize_scalar
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from btcpred.model import BTCPredictor, HORIZONS, QGRID   # noqa: E402
 from btcpred.features import make_features, make_targets   # noqa: E402
+from btcpred import paths                                   # noqa: E402
+from btcpred.data import load_panel, load_sec_offsets       # noqa: E402
 
 folder, a, b = sys.argv[1], sys.argv[2], sys.argv[3]
 pred = BTCPredictor.load(folder)
 pred.calib = {}
-P = pd.read_parquet("data/panel.parquet")
+P = load_panel()
 X, sig = make_features(P)
-S = pd.concat([pd.read_parquet(f) for f in sorted(glob.glob("data/sec/*.parquet"))])
-S = S[~S.index.duplicated()].sort_index()
-T = make_targets(P, sig, horizons=HORIZONS, sec=S, delays=(pred.delay,))
+T = make_targets(P, sig, horizons=HORIZONS, sec=load_sec_offsets(), delays=(pred.delay,))
 m = (X.index >= pd.Timestamp(a, tz="UTC")) & (X.index < pd.Timestamp(b, tz="UTC"))
 F = pred.predict_frame(X[m])
 out = {}
@@ -38,4 +38,5 @@ for h in HORIZONS:
     ks = np.linspace(0.8, 1.5, 71); band_k = float(ks[np.argmin([abs(cov(k) - 0.90) for k in ks])])
     out[h] = {"temp": round(temp, 4), "band_k": round(band_k, 4)}
     print(h, out[h], f"nll gain {(nll(1.0) - nll(temp)) * 1e4:.2f}bp  coverage {cov(1.0)*100:.1f}% -> {cov(band_k)*100:.1f}%")
-json.dump({str(k): v for k, v in out.items()}, open("reports/calibration.json", "w"), indent=1)
+json.dump({str(k): v for k, v in out.items()}, open(paths.CALIBRATION, "w"), indent=1)
+print(f"wrote {paths.CALIBRATION}")

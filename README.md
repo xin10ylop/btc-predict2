@@ -119,7 +119,7 @@ the worst fold.
 ## Regime changes
 
 The diagnosis comes first. All decisions below were made on the 2023 – April 2026 folds;
-`research/regime_*.py` and `research/stress_*.py` hold the tests.
+`research/06_regimes/` holds the tests.
 
 **The edge survives ordinary regimes.** Walk-forward accuracy at 1 minute, by regime:
 
@@ -187,84 +187,85 @@ sample is small but consistent with the holdout.
 ## Running it
 
 ```bash
-pip install -r requirements.txt
-```
-
-The trained models ship in `models/live` (trained on data through 2026-10-31). Live forecasts
-use public market data and need no API key. Spot data comes from
-`data-api.binance.vision`; perp data comes from `fapi.binance.com`, or `www.binance.com/fapi`
-where that host is geo-blocked:
-
-```bash
-python scripts/predict_live.py
-```
-
-Rebuild everything from scratch (about 1.5 GB download, roughly 30 minutes on 4 cores):
-
-```bash
-python scripts/download.py --start 2021-01 --end 2026-10
+make install
 ```
 
 ```bash
-python scripts/download_1s.py 2021-01 2026-10
+make live
 ```
 
-```bash
-python -m btcpred.data
-```
+The trained model ships in `models/live` (trained on data through 2026-10-31). Live forecasts
+use public market data and need no API key. Spot data comes from `data-api.binance.vision`;
+perp data comes from `fapi.binance.com`, or `www.binance.com/fapi` where that host is
+geo-blocked. `make once` prints a single forecast at the next candle close, and `make test`
+runs the offline tests (no lookahead, live parity, model sanity) in about 3 seconds.
 
-```bash
-python scripts/train.py --mode holdout
-```
-
-```bash
-python scripts/calibrate.py models/holdout 2026-05-01 2026-11-01
-```
-
-```bash
-python scripts/train.py --mode live
-```
-
-Real output from the live loop on 2026-11-03 (abridged to one minute):
+Real output (`make once`, 2026-11-03):
 
 ```
-2026-11-03 12:45:01 UTC | BTC 77,388.01 | last candle 12:44 | data age 1.8s
+  self-check, last 2.6 days: 1m hit 55.2% skill +82bp temp 1.21* | 2m hit 52.6% skill +33bp temp 1.13 | 3m hit 52.3% skill +16bp temp 1.07 | 4m hit 51.8% skill +6bp temp 1.14 | 5m hit 52.3% skill +24bp temp 1.22
+  (* = temperature refitted on this self-check window; 1m always, other horizons only when their edge broke)
+
+2026-11-03 14:11:01 UTC | BTC 77,220.01 | last candle 14:10 | data age 1.6s
   horizon  P(up)   confidence      median move   90% range
-   1m      56.1%   80.7 pct top 25%   +0.22 bp   77,312 – 77,469
-   2m      52.5%   49.8 pct          +0.09 bp   77,296 – 77,484
-   3m      49.8%    5.4 pct          -0.00 bp   77,283 – 77,497
-   4m      49.6%   10.8 pct          -0.03 bp   77,267 – 77,512
-   5m      49.9%    3.0 pct          -0.01 bp   77,267 – 77,513
-  why 1m: + perp-vs-spot gap (perp leads) (+0.27); + fresh perp-spot gap (opened late in the bar) (+0.26); - volatility level (+4.79); - premium level (-3.22)
-  why 5m: + perp-vs-spot gap (perp leads) (+0.27); + fresh perp-spot gap (opened late in the bar) (+0.26); + perp-vs-spot gap change (+0.19); + 5m move (-0.96)
+   1m      51.8%   29.8 pct          +0.00 bp   77,099 – 77,344
+   2m      54.2%   72.8 pct          +0.61 bp   77,084 – 77,370
+   3m      51.9%   42.2 pct          +0.31 bp   77,064 – 77,387
+   4m      52.1%   53.0 pct          +0.56 bp   77,038 – 77,417
+   5m      51.7%   43.9 pct          +0.48 bp   76,996 – 77,458
+  why 1m: + fresh perp-spot gap (opened late in the bar) (+0.19); + perp-vs-spot gap (perp leads) (+0.06); - perp close vs its bar VWAP (-0.20); - perp-vs-spot gap change (+0.11)
+  why 5m: + distance below 1h high (+1.42); + fresh perp-spot gap (opened late in the bar) (+0.19); - distance below 24h high (+0.40); - day of week (+1.00)
+  regime: volatility normal for this week (-0.04) | volume normal | perp-lead last 24h weak/absent (+0.039)
 ```
 
-`confidence` is the percentile of this call's conviction among the model's recent calls.
-Most minutes are near 50%, and that is correct: the model only leans when it has a reason.
-After 10 or more forecasts, a `live scorecard` line reports the realised hit rate.
+* `confidence` is the percentile of this call's conviction among the model's recent calls.
+  Most minutes sit near 50%, which is correct: the model only leans when it has a reason.
+* The `self-check` line is the model scoring itself on minutes it never trained on.
+* After 10 or more forecasts, a `live scorecard` line reports the realised hit rate.
 
-To refresh the model after new months are published (optional; no staleness was measured
-over 6 months), re-run the download steps with the new `--end` month and then:
+Rebuild everything from scratch (about 2 GB download; roughly an hour on 4 cores):
 
 ```bash
-python -m btcpred.data
+make data
 ```
 
 ```bash
-python scripts/train.py --mode live
+make holdout
 ```
+
+```bash
+make calibrate
+```
+
+```bash
+make model
+```
+
+Retraining on newly published months is optional (no staleness was measured over 6 months):
+
+```bash
+make data START=2026-11 END=2026-11
+```
+
+```bash
+make model
+```
+
+`make help` lists every step. Research experiments need `make cache` first; see
+`research/README.md`.
 
 ## Repository map
 
 | Path | What it is |
 |---|---|
-| `btcpred/features.py` | every feature, shared by research, training and live (parity tested to <0.03%) |
-| `btcpred/model.py` | `BTCPredictor`: temporal-ensemble direction models, scale model, price bands |
-| `btcpred/live.py` | public-endpoint data access with host fallbacks |
-| `btcpred/validate.py` | walk-forward harness and metrics |
-| `scripts/` | download, train, calibrate, live loop |
-| `research/` | every experiment behind the findings (IC scans, latency decay, ablations, regressions) |
-| `reports/` | logs, per-fold CSVs, `holdout_report*.json`, `calibration.json`, `model_design.json` (per-horizon features) |
+| `AGENTS.md` | a complete guide for coding agents (also loaded by `CLAUDE.md`) |
+| `btcpred/` | the library: `paths`, `data`, `features` (shared by research, training and live), `validate`, `model`, `live` |
+| `scripts/` | the pipeline in run order: `download`, `download_1s`, `build_panel`, `train`, `calibrate`, `predict_live` |
+| `config/` | the frozen design: `model_design.json` (features per horizon), `selected_features.json`, `calibration.json` |
+| `models/live/` | the shipped model |
+| `research/` | experiments grouped by question (`01_facts` … `06_regimes`), named feature sets in `sets/`, and an index |
+| `reports/` | `holdout/` (scored reports: `v1_locked` is the single sealed look), `cv/` (per-fold metrics), `tables/`, `logs/` |
+| `tests/` | offline tests on a 20,000-minute fixture |
 
 ## Method
 

@@ -12,6 +12,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from btcpred.features import make_features            # noqa: E402
+from btcpred import paths                               # noqa: E402
 from btcpred.model import BTCPredictor, HORIZONS       # noqa: E402
 from btcpred import live                                # noqa: E402
 
@@ -83,10 +84,10 @@ def explain(pred, X_last, h, k=4):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="models/live")
+    ap.add_argument("--model", default=str(paths.LIVE_MODEL))
     ap.add_argument("--once", action="store_true", help="one forecast at the next candle close")
     ap.add_argument("--now", action="store_true", help="with --once: forecast immediately (may be stale)")
-    ap.add_argument("--log", default="logs/live_predictions.csv")
+    ap.add_argument("--log", default=str(paths.LIVE_LOG))
     a = ap.parse_args()
     pred = BTCPredictor.load(a.model)
     os.makedirs(os.path.dirname(a.log), exist_ok=True)
@@ -128,7 +129,7 @@ def main():
         last = X.iloc[[-1]]
         f = pred.describe(last, px_now, float(sig.iloc[-1]))
         lag = time.time() - (bar + pd.Timedelta(minutes=1)).timestamp()
-        print(f"\n{pd.Timestamp.utcnow():%Y-%m-%d %H:%M:%S} UTC | BTC {px_now:,.2f} | last candle {bar:%H:%M} "
+        print(f"\n{pd.Timestamp.now("UTC"):%Y-%m-%d %H:%M:%S} UTC | BTC {px_now:,.2f} | last candle {bar:%H:%M} "
               f"| data age {lag:.1f}s")
         if lag > 10:
             print(f"  (data is {lag:.0f}s old; the model assumes you act ~{pred.delay}s after the close, so the 1m edge is mostly gone)")
@@ -146,7 +147,7 @@ def main():
             side = "DOWN" if last["vwap_dev_30"].iloc[0] > 0 else "UP"
             print(f"  ! funding-settlement window and price is {last['vwap_dev_30'].iloc[0]:+.1f} sigma from its 30m VWAP:"
                   f" since 2023 such gaps reverted 3-4x harder than usual (leans {side}; informational, not in the model)")
-        row = dict(bar=bar.isoformat(), made_at=pd.Timestamp.utcnow().isoformat(), price=px_now,
+        row = dict(bar=bar.isoformat(), made_at=pd.Timestamp.now("UTC").isoformat(), price=px_now,
                    **{f"p_up_{h}": f[h]["p_up"] for h in HORIZONS})
         pd.DataFrame([row]).to_csv(a.log, mode="a", header=not os.path.exists(a.log), index=False)
         # live scorecard: compare logged forecasts with realised closes from the cache

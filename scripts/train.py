@@ -1,9 +1,10 @@
 """Train the production predictor.
 
-    python scripts/train.py --mode holdout   # train < 2026-05-01, score ONCE on 2026-05..10 (sealed)
-    python scripts/train.py --mode live      # train on everything, save models/live
+    python scripts/train.py --mode holdout   # train < 2026-05-01, score on 2026-05..10 -> reports/holdout/latest*.json
+    python scripts/train.py --mode live      # train on everything -> models/live (applies config/calibration.json)
 
-Requires data/panel.parquet (btcpred.data) and data/sec/*.parquet (scripts/download_1s.py).
+The design (per-horizon feature lists) comes from config/model_design.json.
+Requires data/panel.parquet (scripts/build_panel.py) and data/sec/ (scripts/download_1s.py).
 """
 import argparse, glob, json, os, sys
 import numpy as np
@@ -13,16 +14,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from btcpred.features import make_features, make_targets, FAMILY   # noqa: E402
 from btcpred.model import BTCPredictor, HORIZONS                    # noqa: E402
 from btcpred.validate import metrics, HOLDOUT_START                 # noqa: E402
+from btcpred import paths                                           # noqa: E402
+from btcpred.data import load_panel, load_sec_offsets               # noqa: E402
 
 DELAYS = (0, 2, 5, 10, 30)
 
 
 def load_all():
-    P = pd.read_parquet("data/panel.parquet")
+    P = load_panel()
     X, sig = make_features(P)
-    S = pd.concat([pd.read_parquet(f) for f in sorted(glob.glob("data/sec/*.parquet"))])
-    S = S[~S.index.duplicated()].sort_index()
-    T = make_targets(P, sig, horizons=HORIZONS, sec=S, delays=DELAYS)
+    T = make_targets(P, sig, horizons=HORIZONS, sec=load_sec_offsets(), delays=DELAYS)
     return P, X, T, sig
 
 
@@ -105,7 +106,7 @@ def evaluate(pred, X, T, start, end, out_json, F=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["holdout", "live"], required=True)
-    ap.add_argument("--design", default="reports/model_design.json")
+    ap.add_argument("--design", default=str(paths.DESIGN))
     ap.add_argument("--windows", default="12,24,36")
     a = ap.parse_args()
     P, X, T, sig = load_all()
@@ -115,20 +116,21 @@ def main():
                         halflife=design.get("halflife"))
     if a.mode == "holdout":
         pred.fit(X, T, HOLDOUT_START)
-        pred.save("models/holdout")
+        pred.save(paths.HOLDOUT_MODEL)
+        paths.ensure(paths.HOLDOUT_REPORTS)
         a0, b0 = pd.Timestamp(HOLDOUT_START, tz="UTC"), X.index[-1] + pd.Timedelta(minutes=1)
         print("--- static (raw ensemble) ---")
-        evaluate(pred, X, T, a0, b0, "reports/holdout_report.json")
+        evaluate(pred, X, T, a0, b0, paths.HOLDOUT_REPORTS / "latest.json")
         print("--- with live-style online recalibration (7-day self-check) ---")
         msk = (X.index >= a0) & (X.index < b0)
         Fo = online_recal_sim(pred, pred.predict_frame(X[msk], raw=True), X[msk], P["s_close"])
-        evaluate(pred, X, T, a0, b0, "reports/holdout_report_online.json", F=Fo)
+        evaluate(pred, X, T, a0, b0, paths.HOLDOUT_REPORTS / "latest_online.json", F=Fo)
     else:
         pred.fit(X, T, X.index[-1] - pd.Timedelta(minutes=10))
-        if os.path.exists("reports/calibration.json"):  # fitted on the holdout after it was scored
-            pred.calib = {int(k): v for k, v in json.load(open("reports/calibration.json")).items()}
-        pred.save("models/live")
-        print("saved models/live")
+        if paths.CALIBRATION.exists():  # fitted on the holdout after it was scored
+            pred.calib = {int(k): v for k, v in json.load(open(paths.CALIBRATION)).items()}
+        pred.save(paths.LIVE_MODEL)
+        print(f"saved {paths.LIVE_MODEL}")
 
 
 if __name__ == "__main__":
