@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "btcpred"
-version = "1.0.0"
-description = "Latency- and regime-aware Bitcoin direction predictor for the next 1-5 minutes"
+version = "1.1.0"
+description = "Latency- and regime-aware Bitcoin direction predictor for the next 10 seconds to 5 minutes"
 requires-python = ">=3.10"
 dependencies = ["numpy>=2.0", "pandas>=2.2", "pyarrow>=15", "lightgbm>=4.3", "scikit-learn>=1.4",
                 "scipy>=1.11", "requests>=2.31"]

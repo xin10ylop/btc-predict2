@@ -1,4 +1,4 @@
-"""btcpred: latency- and regime-aware Bitcoin direction predictor for the next 1-5 minutes.
+"""btcpred: latency- and regime-aware Bitcoin direction predictor for the next 10 seconds to 5 minutes.
 
 Modules
     paths     every file location (absolute)
@@ -9,4 +9,4 @@ Modules
               calibration, online self-recalibration
     live      public Binance endpoints with host fallbacks
 """
-__version__ = "1.0.0"
+__version__ = "1.1.0"

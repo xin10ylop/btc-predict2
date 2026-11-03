@@ -1,170 +1,191 @@
 # btc-predict2: guide for agents
 
-You are working on a Bitcoin predictor. At every 1-minute candle close it gives, for the next
-10 s, 15 s, 1, 2, 3, 4 and 5 minutes:
+## The prompt
+
+Paste this to any agent that works on the repo:
+
+> You are working on btc-predict2, a Bitcoin direction predictor for the next 10 s, 15 s and
+> 1–5 minutes, built on Binance data. Before changing anything, read `AGENTS.md` fully, then
+> `README.md` (results and findings), `research/README.md` (which script proves which claim)
+> and `reports/README.md` (what each result file is). Run `make install` and then `make test`.
+> Follow the rules in `AGENTS.md`:
+> * no lookahead;
+> * score from 2 s after the candle close;
+> * never tune on the May–October 2026 holdout;
+> * keep a change only if it wins at least 5 of 7 walk-forward folds;
+> * run one training job at a time;
+> * run `make test` after every change.
+>
+> If the docs and the code disagree, trust the code and fix the docs.
+
+Everything below is the reference behind that prompt.
+
+## 1. What it does
+
+At every 1-minute candle close it predicts, for **10 s, 15 s, 1, 2, 3, 4 and 5 minutes**
+ahead:
 * P(up) for Binance BTCUSDT spot,
 * a median move and a 90% price range,
-* the features driving the call,
+* the features behind the call,
 * for 10 s and 15 s, the chance the price does not change at all.
 
-It is built on 2021–2026 Binance data and validated walk-forward on a sealed holdout. This
-file is everything you need to work on it safely. Read it fully before changing anything.
+"Ahead" is counted from 2 seconds after the close, when a bot can act. Results on the
+holdout (May–Oct 2026), acting 2 s after the close:
 
-## Read in this order
+| Horizon | Accuracy | Most confident 10% |
+|---|---|---|
+| 10 s | 56.5% (on windows where the price moves) | 66.8% |
+| 15 s | 56.1% | 66.6% |
+| 1 min | 54.0% | 61.6% |
+| 5 min | 52.4% | 57.2% |
 
-1. This file.
-2. `README.md`: results, findings and the regime analysis, with numbers.
-3. `research/README.md`: which script proves which claim, plus the selection rule.
-4. `btcpred/features.py` and `btcpred/model.py`, which are the core.
+Every month was above 52%. The edge per call is under about 1 bp, below taker fees. The
+value is in direction-only payoffs and in timing orders you would place anyway.
 
-## Map
+## 2. Map
 
 ```
-btcpred/            the library (pip install -e .)
-  paths.py          every file location; import paths, never hard-code "data/..."
-  data.py           Binance CSV loading, panel building, loaders (load_panel, load_sec_offsets, load_dev)
-  features.py       ALL features + targets; one function shared by research, training and live
-  validate.py       walk-forward folds, metrics, HOLDOUT_START = 2026-05-01
-  model.py          BTCPredictor: per-horizon ensemble, scale model, bands, calibration, online self-check
-  live.py           public Binance endpoints with host fallbacks
-scripts/            the pipeline, in run order: download -> download_1s -> build_panel -> train -> calibrate -> predict_live
-config/             the frozen design: model_design.json (features per horizon), calibration.json
-models/live/        the shipped model (trained through 2026-10-31), gzip LightGBM text files
-research/           experiments grouped by question (01_facts ... 06_regimes), sets/ = named feature lists
-reports/            results: holdout/ (scored reports), cv/ (per-fold metrics), tables/, logs/
-tests/              offline tests on a 20,000-minute fixture (no network, ~3 s)
-data/               git-ignored; rebuilt by `make data` and `make cache`
+btcpred/          the library (make install = pip install -e .)
+  paths.py        every file location. Import it; never hard-code "data/..."
+  data.py         load Binance CSVs, build the panel; loaders: load_panel, load_sec_offsets, load_dev
+  features.py     ALL features and targets, shared by research, training and live
+  validate.py     walk-forward folds, metrics, HOLDOUT_START = 2026-05-01
+  model.py        BTCPredictor: per-horizon models, bands, no-change table, calibration, self-check
+  live.py         public Binance endpoints with host fallbacks; 1-second prices
+scripts/          the pipeline, in order: download, download_1s, build_panel, train, calibrate, predict_live
+config/           the frozen design: model_design.json (features per horizon), calibration.json
+models/live/      the shipped model, trained through 2026-10-31
+research/         experiments by question (01_facts … 06_regimes); sets/ holds named feature lists; README is the index
+reports/          results: holdout/, cv/ (per fold), tables/, logs/; README explains each file
+tests/            offline tests on a 20,000-minute fixture (about 3 s, no network)
+data/, logs/      git-ignored; rebuilt by `make data` / `make cache`, written by the live loop
 ```
 
-## Commands (`make help`)
+**Commands** (`make help`):
+* `make install`, `make test`
+* `make live` (a forecast every minute), `make once` (one forecast)
+* `make data`, `make cache`
+* `make holdout`, `make calibrate`, `make model`
+* `make research-regimes`, `make research-seconds`
 
-`make install` · `make test` · `make live` · `make once` · `make data` · `make cache` ·
-`make holdout` · `make calibrate` · `make model` · `make research-regimes`
+## 3. How it works
 
-## How it works
+1. **Data.** 1-minute candles for BTCUSDT spot (`s_*`), the USDT-M perp (`p_*`), the perp
+   premium index (`pi_*`) and ETHUSDT (`e_*`). Spot 1-second candles give the price at
+   +0 … +30 s after every close (`data/sec`, columns `px_<d>`).
+2. **Rows.** Row t is the candle that *opened* at t. Its features use only candles up to and
+   including t.
+3. **Features** are scale-free: prices in units of the running volatility, volumes relative to
+   their own history. Each has a family (`FAMILY` in `features.py`).
+4. **Targets**, in volatility units:
+   * `zd{d}_{h}`: from close+d s to the close h minutes later;
+   * `zs{d}_{H}`: from close+d s to close+d+H s, for H = 10, 15;
+   * production trains on **d = 2**.
+5. **Horizon keys** in code are `"s10"`, `"s15"` and `1`..`5`. Use `is_sec`, `h_minutes`,
+   `h_label` and `target_col` from `model.py`; never assume horizons are ints.
+6. **Models** (per horizon):
+   * LightGBM classifiers trained on the last 12, 24 and 36 months, then averaged;
+   * a LightGBM volatility model plus residual quantiles, for the price bands;
+   * for seconds horizons, a no-change table: P(price unchanged) by volatility decile.
+7. **Feature sets** (`config/model_design.json`):
+   * 1 min: 47 base features + 9 regime-state features;
+   * 10 s / 15 s: 46 fast features (the 1-minute set without the slow range family);
+   * 2–5 min: the 47 base features.
+8. **Calibration.** Averaging makes probabilities timid. `config/calibration.json` holds a
+   temperature and a band width per horizon, fitted on the holdout after it was scored.
+9. **Live** (`scripts/predict_live.py`) loads 20,000 minutes of history, then:
+   * scores itself on the minutes *after* the training cutoff (up to 7 days) and refits
+     temperatures, hourly: always at 1 min, and at 2–5 min only if the recent edge turned
+     negative;
+   * keeps the static calibration for 10 s / 15 s, and checks those forecasts a minute later
+     against 1-second candles (`logs/live_seconds.csv`);
+   * forecasts about 1.5 s after each close.
 
-* **Data.** 1-minute klines for BTCUSDT spot (`s_*`), the USDT-M perp (`p_*`), the perp
-  premium index (`pi_*`) and ETHUSDT (`e_*`). Spot 1-second klines give the price d seconds
-  after each close (`data/sec`).
-* **Row convention.** Row t is the candle that *opened* at t. Features at row t use only
-  candles up to and including t, so they are known at t's close.
-* **Targets.** `zd{d}_{h}` runs from the price d seconds after the close of t to the close of
-  t+h, divided by the running volatility. `zs{d}_{H}` runs from close+d s to close+d+H s, for
-  H = 10, 15. **Production trains on d = 2** (when a bot can act).
-* **Horizon keys** in code are `"s10"`, `"s15"` (seconds) and `1`..`5` (minutes). Use the
-  helpers `is_sec`, `h_minutes`, `h_label` and `target_col` in `model.py`; never assume
-  horizons are ints.
-* **Features** are scale-free: prices in units of the running volatility, volumes relative to
-  their own history. Each feature has a *family* (`FAMILY` in `features.py`).
-* **Model.** Per horizon: LightGBM binary classifiers trained on the last 12, 24 and 36 months
-  and averaged; a LightGBM scale model; empirical residual quantiles for bands. Feature sets
-  (`config/model_design.json`):
-  * 1 min: the 47 base features + 9 regime-state features;
-  * 10 s / 15 s: 46 "fast" features (base + regime, without the slow range family);
-  * 2–5 min: the 47 base features.
-* **Seconds horizons** also hold a no-change table: P(price unchanged) by decile of predicted
-  volatility (`flat_tab`).
-* **Calibration.** Averaging makes probabilities timid. The static temperatures and band
-  widths in `config/calibration.json` were fitted on the holdout after it was scored.
-* **Live** (`scripts/predict_live.py`): loads 20,000 minutes of history. It self-scores on up
-  to 7 days *after the training cutoff* and refits the temperature, hourly: always at 1 min,
-  and at 2–5 min only when the recent edge turned negative (circuit breaker). 10 s / 15 s keep
-  their static calibration and are scored one minute later against 1-second candles
-  (`logs/live_seconds.csv`). Each forecast fires about 1.5 s after the candle close.
+## 4. Rules
 
-## Rules you must not break
-
-1. **No lookahead.** A feature at t may use only data up to t. `tests/test_features.py::test_no_lookahead`
-   must pass. Add any new feature to `features.py` (with a family) so the test covers it.
-2. **Latency-aware evaluation.** Score with `zd2` (and report `zd0`, `zd10`, `zd30`). Never
-   claim accuracy measured from the exact close as tradeable.
-3. **The holdout (2026-05-01 to 2026-10-31) is used up.** It was scored once by the locked
-   model, then looked at a second time after the regime work. Do not tune on it. Make new
-   decisions on the dev folds (`validate.TEST_FOLDS`). The only untouched data is data after
-   2026-10-31, which the live self-check measures.
+1. **No lookahead.** `tests/test_features.py::test_no_lookahead` must pass. Every new feature
+   goes in `features.py` with a family, so the test covers it.
+2. **Score latency-aware.** Use `zd2` / `zs2`; report `zd0`/`zd10`/`zd30` and `zs0`/`zs5`
+   too. Accuracy measured from the exact close is not tradeable.
+3. **The holdout (2026-05-01 to 2026-10-31) is used up.** It was looked at three times (see
+   `reports/README.md`). Never tune on it. Decide on the dev folds (`validate.TEST_FOLDS`). The
+   only untouched data comes after 2026-10-31, and the live self-check measures it.
 4. **Selection rule.** Keep a change only if it beats the reference on log-loss on average
-   **and in at least 5 of 7 folds** at the horizon where it is used. Write it down before
-   running. Do not bend it after seeing results.
-5. **Live parity.** Live computes features on 20,000 minutes. Any new feature must settle
-   within about 8,000 minutes (no windows longer than 5 days). `test_live_warmup_parity` checks
-   this.
-6. **One LightGBM job at a time.** Parallel 4-thread jobs on 4 cores run more than 5x slower.
-7. **Never commit `data/`.** `models/live/` is committed; regenerate it with `make model`.
-   `config/` is the single source of truth for the shipped design.
+   **and in at least 5 of 7 folds** at the horizon where it is used. Write the test down
+   before running it, and do not bend it afterwards.
+5. **Live parity.** Features must settle within about 8,000 minutes (no window longer than 5
+   days). `test_live_warmup_parity` checks this.
+6. **One LightGBM job at a time.** Two parallel 4-thread jobs on 4 cores run more than 5x
+   slower.
+7. **Never commit `data/`.** `config/` is the single source of truth for the design;
+   `models/live/` is rebuilt with `make model` and committed.
 
-## What is already known (don't redo it)
+## 5. What is already known (don't redo it)
 
-Works, with the same sign in every year:
-* the perp–spot gap (perp leads spot);
-* **gap freshness** (close-basis minus bar-VWAP basis, recovered from kline volume fields);
+**Works**, with the same sign every year:
+* the perp–spot gap (the perp leads spot);
+* gap freshness (close basis minus bar-VWAP basis, from kline volume fields);
 * mean reversion: 30-minute VWAP stretch, distance from the 1-hour high or low, 15–60-minute
-  returns;
-* breakouts fail and sweeps reverse (but these are redundant);
-* clock effects;
-* the ETH lead, which is small.
+  moves;
+* small effects: clock (minute and hour), bar shape, ETH.
 
-Measured:
-* **Fast signals decay within seconds, slow ones are flat out to 30 s.**
+**Measured:**
+* Fast signals die within seconds; slow ones are flat out to 30 s.
+* At 10–15 s only fast signals matter, and they are stronger there (perp–spot IC 10.6% at
+  10 s vs 7.6% at 1 min).
 * Lead-lag shows only in calm markets.
-* Flow-driven moves revert and flow-free moves do not.
-* VWAP reversion is 2x stronger before quarter-hours and 3–4x stronger at funding settlement
-  since 2023. This is not in the model (4/7 folds); the live tool raises an alert instead.
+* Flow-driven moves revert; flow-free ones do not.
+* The price is unchanged in 13–18% of 10 s windows (up to 43% when very quiet).
+* VWAP reversion is 2x stronger before quarter-hours and 3–4x at funding settlement. It is
+  not in the model (4/7 folds); the live tool shows an alert instead.
 
-Rejected:
-* round numbers (they hurt);
-* the global spot index or "Coinbase premium" lead (none);
+**Rejected:**
+* round numbers;
+* the global spot index / Coinbase-premium lead;
 * buyer vs seller VWAP;
 * same-phase lags;
 * raw flow, impact and sweep families (redundant);
 * recency-weighted training;
 * regime features at 2–5 min;
-* 94 features (the 47 win).
+* the range family at 10 s / 15 s;
+* 94 features (47 win).
 
-Regimes:
-* robust across trend, volatility and volume regimes;
+**Regimes:**
+* robust across trend, volatility and volume;
 * no staleness over 6 months;
-* **the structural break was Binance's zero-fee BTCUSDT period (Jul 2022 – Mar 2023)**, when
-  the fast edge vanished. It is handled by the regime features plus the online self-check
-  (stress test: −12.7 bp → +4.3 bp at 1 min).
+* the one structural break was Binance's zero-fee BTCUSDT period (Jul 2022 – Mar 2023),
+  when the fast edge vanished. Regime features plus the self-check handle it (1 min stress
+  test: −12.7 bp → +4.3 bp).
 
-Holdout results, acting 2 s after the close:
-* 10 s: 56.5% accuracy on windows where the price moves (66.8% top-10%); 59.0% acting at the
-  close, 54.5% acting 5 s late;
-* 15 s: 56.1% (66.6% top-10%);
-* 1 min: 53.95% accuracy (61.6% on the top-10% most confident calls);
-* 5 min: 52.44% (57.2% top-10%);
-* every month above 52%.
-
-**Economics.** Confident calls happen in calm markets, so the edge is under about 1 bp per
-call, below taker fees. The value is in direction-only payoffs and in timing orders you would
-place anyway.
-
-## Recipes
+## 6. Recipes
 
 * **Add a feature.**
-  1. Add it in `features.py` with a family tag.
+  1. Add it to `features.py` with a family.
   2. Run `make cache`.
-  3. Write `research/sets/<x>.json` with the reference `core47` and core47 plus the new feature.
-  4. Run `python research/04_selection/compare_sets.py 1 research/sets/<x>.json`, then the
-     same with `5`.
-  5. Apply the rule on `reports/cv/*.csv`.
+  3. Write `research/sets/<x>.json` with the reference set and the reference plus your
+     feature.
+  4. Run `python research/04_selection/compare_sets.py <h> research/sets/<x>.json` for each
+     horizon it should help (`s10`, `1`, `5`, ...).
+  5. Apply the rule to `reports/cv/*.csv`.
   6. If it passes, add it to `config/model_design.json`, then run `make model` and `make test`.
-* **Retrain on new months.**
-  1. Run `make data START=<first new month> END=<last full month>` (downloads are cached).
-  2. Run `make model`, then `make test`.
-  3. Commit `models/live`.
-* **Investigate live behaviour.** Forecasts are logged to `logs/live_predictions.csv`.
-  `BTCPredictor.online_calibrate` holds the self-check; `scripts/predict_live.py` holds the
-  display and the regime line.
+* **Add a horizon.**
+  1. Add a target in `make_targets`.
+  2. Add a key in `model.py` (`MIN_HORIZONS` / `SEC_HORIZONS`).
+  3. Pick its feature set with `compare_sets.py`.
+  4. Score it with `train.py --mode holdout --horizons <h>`.
+  5. Run `calibrate.py`, `make model` and `make test`.
+* **Retrain on new months.** Run `make data START=<month> END=<month>`, then `make model`
+  and `make test`, then commit `models/live`.
+* **Debug live.** Forecasts go to `logs/live_predictions.csv` and seconds outcomes to
+  `logs/live_seconds.csv`. The self-check is `BTCPredictor.online_calibrate`; the display
+  is in `scripts/predict_live.py`.
 
-## Gotchas
+## 7. Gotchas
 
-* Since 2025-01-01, Binance spot files use microsecond timestamps; `data.py` and the 1-second
-  downloader handle it.
-* `api.binance.com` and `fapi.binance.com` are geo-blocked in some countries. `live.py` falls
-  back to `data-api.binance.vision` (spot) and `www.binance.com/fapi` (perp).
-* pandas 3 can return read-only arrays from `.values`, so avoid in-place `&=` on them.
-* Pipe long jobs with `python -u`. `pgrep -f <pattern>` can match its own shell, so kill by
-  PID.
-* The 1-minute edge depends on speed, and the live loop is built to act about 1.5 s after
-  the close. Don't add slow work before the forecast.
+* Since 2025-01-01, Binance spot files use microsecond timestamps; the loaders handle it.
+* `api.binance.com` / `fapi.binance.com` are geo-blocked in some countries. `live.py` falls
+  back to `data-api.binance.vision` and `www.binance.com/fapi`.
+* pandas 3 can return read-only arrays from `.values`, so don't use in-place `&=` on them.
+* Run long jobs with `python -u`. `pgrep -f` can match its own shell, so kill by PID.
+* The short horizons depend on speed. Don't add slow work before the forecast in the live
+  loop.

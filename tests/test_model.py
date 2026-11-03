@@ -48,3 +48,13 @@ def test_self_check_runs_after_cutoff(panel, features):
     assert set(tr) == set(MIN_HORIZONS)   # seconds horizons keep their static calibration
     for h, t in tr.items():
         assert 0.0 <= t["temp"] <= 3.0 and t["n"] > 2000 and 0.4 < t["hit"] < 0.7
+
+
+def test_no_change_probability_for_seconds(pred, features):
+    """10s/15s forecasts carry P(price unchanged); it must be a probability and fall as volatility rises."""
+    X, sig = features
+    d = pred.describe(X.iloc[[-1]], 77000.0, float(sig.iloc[-1]))
+    for h in ("s10", "s15"):
+        assert 0.0 <= d[h]["p_flat"] <= 1.0
+        flat = pred.flat_tab[h]["flat"]
+        assert flat[0] > flat[-1], f"{h}: quiet moments should be flat more often than wild ones"

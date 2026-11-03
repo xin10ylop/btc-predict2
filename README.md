@@ -296,8 +296,8 @@ make model
 | `config/` | the frozen design: `model_design.json` (features per horizon), `selected_features.json`, `calibration.json` |
 | `models/live/` | the shipped model |
 | `research/` | experiments grouped by question (`01_facts` … `06_regimes`), named feature sets in `sets/`, and an index |
-| `reports/` | `holdout/` (scored reports: `v1_locked` is the single sealed look), `cv/` (per-fold metrics), `tables/`, `logs/` |
-| `tests/` | offline tests on a 20,000-minute fixture |
+| `reports/` | `holdout/` (scored reports: `v1_locked` is the single sealed look), `cv/` (per-fold metrics), `tables/`, `logs/`; `reports/README.md` explains each file |
+| `tests/` | offline tests on a 20,000-minute fixture: no lookahead, live parity, model sanity (`make test`) |
 
 ## Method
 
