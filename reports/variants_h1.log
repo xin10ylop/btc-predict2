@@ -1,0 +1,7 @@
+[A_bin24] mean: auc=0.5461 acc=0.5311 ll_skill_bp=35.9664 ic=0.0814 acc_top10=0.5954 edge_top10=0.1959 | worst-fold auc=0.5295 ic=0.0566
+[B_bin12] mean: auc=0.5443 acc=0.5303 ll_skill_bp=34.9204 ic=0.0798 acc_top10=0.5942 edge_top10=0.1882 | worst-fold auc=0.5234 ic=0.0258
+[C_bin36] mean: auc=0.5447 acc=0.5308 ll_skill_bp=32.8313 ic=0.0765 acc_top10=0.5922 edge_top10=0.1832 | worst-fold auc=0.5340 ic=0.0558
+[D_huber24] mean: auc=0.5452 acc=0.5304 ll_skill_bp=34.0330 ic=0.0857 acc_top10=0.5921 edge_top10=0.2005 | worst-fold auc=0.5282 ic=0.0575
+[E_ens_ABC] mean: auc=0.5484 acc=0.5330 ll_skill_bp=39.2138 ic=0.0844 acc_top10=0.5994 edge_top10=0.2022 | worst-fold auc=0.5329 ic=0.0521
+[F_ens_A_D] mean: auc=0.5468 acc=0.5320 ll_skill_bp=37.3207 ic=0.0855 acc_top10=0.5973 edge_top10=0.2045 | worst-fold auc=0.5293 ic=0.0575
+QUEUE4_DONE

@@ -1,0 +1,6 @@
+[core h=1 n=37] mean: auc=0.5462 acc=0.5310 ll_skill_bp=35.8730 ic=0.0818 acc_top10=0.5975 edge_top10=0.1987 auc@zd0_1=0.5533 ic@zd0_1=0.0987 auc@zd10_1=0.5327 ic@zd10_1=0.0557 auc@zd30_1=0.5197 ic@zd30_1=0.0289 | worst-fold auc=0.5288 ic=0.0557
+[core_range h=1 n=47] mean: auc=0.5461 acc=0.5311 ll_skill_bp=35.9664 ic=0.0814 acc_top10=0.5954 edge_top10=0.1959 auc@zd0_1=0.5532 ic@zd0_1=0.0983 auc@zd10_1=0.5329 ic@zd10_1=0.0556 auc@zd30_1=0.5196 ic@zd30_1=0.0284 | worst-fold auc=0.5295 ic=0.0566
+[core_impact h=1 n=46] mean: auc=0.5458 acc=0.5312 ll_skill_bp=35.5244 ic=0.0811 acc_top10=0.5957 edge_top10=0.1950 auc@zd0_1=0.5533 ic@zd0_1=0.0987 auc@zd10_1=0.5322 ic@zd10_1=0.0550 auc@zd30_1=0.5192 ic@zd30_1=0.0279 | worst-fold auc=0.5305 ic=0.0545
+[core_sweep h=1 n=43] mean: auc=0.5459 acc=0.5310 ll_skill_bp=35.9659 ic=0.0820 acc_top10=0.5972 edge_top10=0.2012 auc@zd0_1=0.5534 ic@zd0_1=0.0992 auc@zd10_1=0.5325 ic@zd10_1=0.0559 auc@zd30_1=0.5193 ic@zd30_1=0.0289 | worst-fold auc=0.5286 ic=0.0560
+[core_slowall h=1 n=81] mean: auc=0.5454 acc=0.5307 ll_skill_bp=34.8017 ic=0.0804 acc_top10=0.5960 edge_top10=0.1955 auc@zd0_1=0.5531 ic@zd0_1=0.0976 auc@zd10_1=0.5323 ic@zd10_1=0.0548 auc@zd30_1=0.5197 ic@zd30_1=0.0281 | worst-fold auc=0.5276 ic=0.0555
+QUEUE_DONE

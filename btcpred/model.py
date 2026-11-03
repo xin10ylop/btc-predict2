@@ -26,16 +26,17 @@ QGRID = np.linspace(0.01, 0.99, 99)
 VOL_C = 0.05
 
 
-def _fit(params, X, y, rounds, seed=0):
+def _fit(params, X, y, rounds, seed=0, return_es=False):
+    """Early-stop on the most recent 10% of rows, then refit on all rows with that many trees."""
     n = len(y)
     cut = int(n * 0.9)
     p = {**params, "seed": seed}
     d1 = lgb.Dataset(X[:cut], y[:cut])
     d2 = lgb.Dataset(X[cut:], y[cut:], reference=d1)
     m = lgb.train(p, d1, rounds, valid_sets=[d2], callbacks=[lgb.early_stopping(60, verbose=False)])
-    # refit on all rows with the early-stopped number of rounds
     best = max(m.best_iteration, 20)
-    return lgb.train(p, lgb.Dataset(X, y), best)
+    full = lgb.train(p, lgb.Dataset(X, y), best)
+    return (full, m) if return_es else full
 
 
 class BTCPredictor:
@@ -47,6 +48,7 @@ class BTCPredictor:
         self.dir_models = {}   # h -> list of boosters
         self.vol_models = {}   # h -> booster
         self.resid_q = {}      # h -> quantiles of standardized residual z / scale
+        self.conf_q = {}       # h -> percentiles of |P(up) - 0.5| on recent training data
         self.meta = {}
 
     # ------------------------------------------------------------------ train
@@ -65,15 +67,19 @@ class BTCPredictor:
                 self.dir_models[h].append(m)
                 if verbose:
                     print(f"h={h} window={w}m rows={len(tr)} trees={m.num_trees()}", flush=True)
+            # historical distribution of |p - 0.5| -> lets live output say "top x% confidence"
+            recent = np.flatnonzero(ok & (idx >= stop - pd.DateOffset(months=2)) & (idx < stop))[::5]
+            pr = np.mean([m.predict(X[self.features].values[recent]) for m in self.dir_models[h]], axis=0)
+            self.conf_q[h] = np.quantile(np.abs(pr - 0.5), np.linspace(0, 1, 101)).tolist()
             # scale model on the middle window
             w = sorted(self.windows)[len(self.windows) // 2]
             tr = np.flatnonzero(ok & (idx >= end - pd.DateOffset(months=w)) & (idx < stop))[::self.sub]
             ya = np.log(np.abs(z[tr]) + VOL_C)
-            vm = _fit(VOL_PARAMS, X[self.features].values[tr], ya, 600)
+            vm, vm_es = _fit(VOL_PARAMS, X[self.features].values[tr], ya, 600, return_es=True)
             self.vol_models[h] = vm
-            # residual shape from the most recent 10% of the training rows (out-of-sample-ish)
+            # residual shape measured out-of-sample: early-stopping model on the held-out last 10%
             tail = tr[int(len(tr) * 0.9):]
-            scale = self._scale(vm, X[self.features].values[tail])
+            scale = self._scale(vm_es, X[self.features].values[tail])
             e = z[tail] / scale
             self.resid_q[h] = (np.quantile(e, QGRID) - np.median(e)).tolist()
         self.meta = dict(trained_until=str(end), delay_s=self.delay, windows=self.windows,
@@ -108,7 +114,9 @@ class BTCPredictor:
             # location shift delta such that P(e + delta > 0) = p  (fixed shape, shifted)
             delta = -np.interp(1 - p, QGRID, Q)
             band = {f"q{int(round(qq*100))}": float((np.interp(qq, QGRID, Q) + delta) * unit * 1e4) for qq in QS}
-            res[h] = dict(p_up=p, median_move_bp=float(delta * unit * 1e4), band_bp=band,
+            cq = self.conf_q.get(h)
+            pct = float(np.interp(abs(p - 0.5), cq, np.linspace(0, 100, 101))) if cq else float("nan")
+            res[h] = dict(p_up=p, confidence_pct=pct, median_move_bp=float(delta * unit * 1e4), band_bp=band,
                           price_median=float(price_now * np.exp(delta * unit)),
                           price_q05=float(price_now * np.exp(band["q5"] / 1e4)),
                           price_q95=float(price_now * np.exp(band["q95"] / 1e4)))
@@ -123,7 +131,8 @@ class BTCPredictor:
         for h, m in self.vol_models.items():
             m.save_model(os.path.join(folder, f"vol_h{h}.txt"))
         json.dump(dict(features=self.features, delay=self.delay, windows=list(self.windows),
-                       resid_q={str(k): v for k, v in self.resid_q.items()}, meta=self.meta),
+                       resid_q={str(k): v for k, v in self.resid_q.items()},
+                       conf_q={str(k): v for k, v in self.conf_q.items()}, meta=self.meta),
                   open(os.path.join(folder, "predictor.json"), "w"), indent=1)
 
     @classmethod
@@ -131,6 +140,7 @@ class BTCPredictor:
         cfg = json.load(open(os.path.join(folder, "predictor.json")))
         obj = cls(cfg["features"], cfg["delay"], tuple(cfg["windows"]))
         obj.resid_q = {int(k): v for k, v in cfg["resid_q"].items()}
+        obj.conf_q = {int(k): v for k, v in cfg.get("conf_q", {}).items()}
         obj.meta = cfg["meta"]
         for h in HORIZONS:
             obj.dir_models[h] = [lgb.Booster(model_file=os.path.join(folder, f"dir_h{h}_{i}.txt"))

@@ -2,7 +2,7 @@
 the running EWMA sigma. Compared against the naive "EWMA sigma is right" baseline."""
 import sys, numpy as np, pandas as pd, lightgbm as lgb
 from btcpred.validate import TEST_FOLDS
-X = pd.read_parquet("data/X_dev.parquet"); T = pd.read_parquet("data/T_dev.parquet")
+X = pd.read_parquet("data/X_dev_v3.parquet"); T = pd.read_parquet("data/T_dev.parquet")
 h = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 z = T[f"zd2_{h}"].values
 a = np.abs(z)

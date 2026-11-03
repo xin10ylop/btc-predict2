@@ -8,7 +8,7 @@ same folds is a chance to overfit the validation). Target = act 2s after close.
 """
 import sys, json, numpy as np, pandas as pd
 from btcpred.validate import walk_forward, metrics, summarize, TEST_FOLDS
-X = pd.read_parquet("data/X_dev.parquet"); T = pd.read_parquet("data/T_dev.parquet")
+X = pd.read_parquet("data/X_dev_v3.parquet"); T = pd.read_parquet("data/T_dev.parquet")
 h = int(sys.argv[1]); tgt = f"zd2_{h}"
 feats = json.load(open("reports/selected_features.json")) if len(sys.argv) > 2 else list(X.columns)
 X = X[feats]

@@ -77,13 +77,19 @@ def main():
         lag = time.time() - (bar + pd.Timedelta(minutes=1)).timestamp()
         print(f"\n{pd.Timestamp.utcnow():%Y-%m-%d %H:%M:%S} UTC | BTC {px_now:,.2f} | last candle {bar:%H:%M} "
               f"| data age {lag:.1f}s")
-        print("  horizon  P(up)   median move   90% range")
+        print("  horizon  P(up)   confidence      median move   90% range")
         for h in HORIZONS:
             r = f[h]
-            print(f"   {h}m     {r['p_up']*100:5.1f}%  {r['median_move_bp']:+6.2f} bp   "
+            c = r["confidence_pct"]
+            tag = "top 10%" if c >= 90 else ("top 25%" if c >= 75 else "      ")
+            print(f"   {h}m     {r['p_up']*100:5.1f}%  {c:5.1f} pct {tag}  {r['median_move_bp']:+6.2f} bp   "
                   f"{r['price_q05']:,.0f} – {r['price_q95']:,.0f}")
         for h in (1, 5):
             print(f"  why {h}m: " + "; ".join(explain(pred, last, h)))
+        if last["clock_class"].iloc[0] == 4 and abs(last["vwap_dev_30"].iloc[0]) > 1.0:
+            side = "DOWN" if last["vwap_dev_30"].iloc[0] > 0 else "UP"
+            print(f"  ! funding-settlement window and price is {last['vwap_dev_30'].iloc[0]:+.1f} sigma from its 30m VWAP:"
+                  f" since 2023 such gaps reverted 3-4x harder than usual (leans {side}; informational, not in the model)")
         row = dict(bar=bar.isoformat(), made_at=pd.Timestamp.utcnow().isoformat(), price=px_now,
                    **{f"p_up_{h}": f[h]["p_up"] for h in HORIZONS})
         pd.DataFrame([row]).to_csv(a.log, mode="a", header=not os.path.exists(a.log), index=False)
@@ -94,7 +100,7 @@ def main():
         hits = {}
         for h in (1, 5):
             tgt = closes.reindex(L["bar"] + pd.Timedelta(minutes=h)).values
-            ok = np.isfinite(tgt)
+            ok = np.isfinite(tgt) & (tgt != L["price"].values)  # unchanged price = no call
             if ok.sum() >= 10:
                 up = tgt[ok] > L["price"].values[ok]
                 hits[h] = (np.mean((L[f"p_up_{h}"].values[ok] > 0.5) == up), int(ok.sum()))

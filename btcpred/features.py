@@ -124,6 +124,17 @@ def make_features(P, families=None):
     mins_day = idx.hour.values * 60 + m
     _add(F, "to_funding", (480 - (mins_day % 480)) % 480, "clock")
 
+    # clock-conditioned reversion: deviations from VWAP revert ~2x harder before quarter-hours
+    # and ~3-4x harder within +-1 min of the 8h funding settlement (2023+). Settlement rows are
+    # too rare (0.6%) for regularised trees to isolate, so the interaction is made explicit.
+    tf = F["to_funding"]
+    settle = (tf <= 2).astype("float32")                   # bars 07:58, 07:59, 08:00 (and 00/16h)
+    preq = ((m % 15) == 14).astype("float32")
+    w = 1.0 + preq + 3.0 * settle
+    _add(F, "clock_class", np.select([settle > 0, preq > 0, (m % 15) == 0, (m % 5) == 4], [4, 3, 2, 1], 0), "clockrev")
+    _add(F, "vwap30_x_clock", F["vwap_dev_30"] * w, "clockrev")
+    _add(F, "ret15_x_clock", F["ret_15"] * w, "clockrev")
+
     # ---------------- G. cross-asset (ETH) --------------------------------
     if "e_close" in P:
         e_c = np.log(P["e_close"].astype("float64"))

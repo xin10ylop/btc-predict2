@@ -1,0 +1,2 @@
+[core_v3ref h=5 n=47] mean: auc=0.5355 acc=0.5243 ll_skill_bp=18.0409 ic=0.0355 acc_top10=0.5658 edge_top10=0.0789 auc@zd0_5=0.5376 ic@zd0_5=0.0393 auc@zd10_5=0.5324 ic@zd10_5=0.0299 auc@zd30_5=0.5280 ic@zd30_5=0.0238 | worst-fold auc=0.5284 ic=0.0267
+[core_range_clockrev h=5 n=50] mean: auc=0.5353 acc=0.5239 ll_skill_bp=18.4303 ic=0.0357 acc_top10=0.5683 edge_top10=0.0836 auc@zd0_5=0.5373 ic@zd0_5=0.0394 auc@zd10_5=0.5323 ic@zd10_5=0.0301 auc@zd30_5=0.5276 ic@zd30_5=0.0237 | worst-fold auc=0.5286 ic=0.0277

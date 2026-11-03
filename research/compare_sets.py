@@ -3,8 +3,10 @@ usage: compare_sets.py h [sets.json]   (sets.json: {"name": [features...]}; defa
 import sys, json, numpy as np, pandas as pd
 from btcpred.validate import walk_forward, summarize
 h = int(sys.argv[1])
-X = pd.read_parquet("data/X_dev_v2.parquet"); T = pd.read_parquet("data/T_dev.parquet")
-fam = pd.read_csv("data/families_v2.csv", index_col=0).iloc[:, 0].to_dict()
+import os
+VER = os.environ.get("FEATVER", "_v2")
+X = pd.read_parquet(f"data/X_dev{VER}.parquet"); T = pd.read_parquet("data/T_dev.parquet")
+fam = pd.read_csv(f"data/families{VER}.csv", index_col=0).iloc[:, 0].to_dict()
 if len(sys.argv) > 2:
     SETS = json.load(open(sys.argv[2]))
 else:
