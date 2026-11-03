@@ -1,0 +1,7 @@
+data/
+__pycache__/
+*.pyc
+*.parquet
+models/*.tmp
+.ipynb_checkpoints/
+logs/

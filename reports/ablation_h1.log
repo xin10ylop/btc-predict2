@@ -1,0 +1,2 @@
+{'family': 'basis', 'n_feats': 6, 'd_ll_mean': np.float64(15.191580391347632), 'folds_helped': 7, 'd_auc_mean': np.float64(1.2283151740926248), 'd_ll_per_fold': [10.8, 38.0, 16.0, 12.4, 16.0, 10.5, 2.7]}
+{'family': 'clock', 'n_feats': 5, 'd_ll_mean': np.float64(3.058816730006708), 'folds_helped': 6, 'd_auc_mean': np.float64(0.22843775873077543), 'd_ll_per_fold': [10.9, 5.2, 2.9, 2.7, 0.8, 1.1, -2.2]}
