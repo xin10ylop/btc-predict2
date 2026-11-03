@@ -1,2 +1,27 @@
 {'family': 'basis', 'n_feats': 6, 'd_ll_mean': np.float64(15.191580391347632), 'folds_helped': 7, 'd_auc_mean': np.float64(1.2283151740926248), 'd_ll_per_fold': [10.8, 38.0, 16.0, 12.4, 16.0, 10.5, 2.7]}
 {'family': 'clock', 'n_feats': 5, 'd_ll_mean': np.float64(3.058816730006708), 'folds_helped': 6, 'd_auc_mean': np.float64(0.22843775873077543), 'd_ll_per_fold': [10.9, 5.2, 2.9, 2.7, 0.8, 1.1, -2.2]}
+{'family': 'eth', 'n_feats': 3, 'd_ll_mean': np.float64(0.976372794679086), 'folds_helped': 5, 'd_auc_mean': np.float64(0.06461590257165988), 'd_ll_per_fold': [-2.6, 1.7, 4.2, 2.3, 0.8, 2.0, -1.5]}
+{'family': 'flow', 'n_feats': 19, 'd_ll_mean': np.float64(-0.14417312421989845), 'folds_helped': 4, 'd_auc_mean': np.float64(-0.02992613434700412), 'd_ll_per_fold': [-2.5, -1.1, 1.9, 0.6, 1.0, 1.2, -2.1]}
+{'family': 'impact', 'n_feats': 9, 'd_ll_mean': np.float64(-0.18176137142722684), 'folds_helped': 4, 'd_auc_mean': np.float64(-0.024997257494631588), 'd_ll_per_fold': [0.9, -1.0, 1.6, 0.2, -1.6, 0.7, -2.2]}
+{'family': 'phase', 'n_feats': 4, 'd_ll_mean': np.float64(0.2986966761494733), 'folds_helped': 4, 'd_auc_mean': np.float64(0.023428781568200576), 'd_ll_per_fold': [1.1, 1.1, -0.2, 0.1, -0.3, 1.6, -1.2]}
+{'family': 'range', 'n_feats': 10, 'd_ll_mean': np.float64(0.2104643233133007), 'folds_helped': 4, 'd_auc_mean': np.float64(-0.010178694313656145), 'd_ll_per_fold': [1.9, -2.4, 1.1, 2.6, -0.8, 0.8, -1.7]}
+{'family': 'returns', 'n_feats': 11, 'd_ll_mean': np.float64(0.8034109373414695), 'folds_helped': 5, 'd_auc_mean': np.float64(0.04430756608629111), 'd_ll_per_fold': [1.3, 0.2, 3.4, 1.2, -0.2, 1.3, -1.6]}
+{'family': 'round', 'n_feats': 9, 'd_ll_mean': np.float64(-0.7092331413908052), 'folds_helped': 3, 'd_auc_mean': np.float64(-0.08670139679498907), 'd_ll_per_fold': [-3.1, -3.3, 0.6, 1.4, -0.3, 1.6, -1.8]}
+{'family': 'shape', 'n_feats': 3, 'd_ll_mean': np.float64(2.170362258088832), 'folds_helped': 6, 'd_auc_mean': np.float64(0.11632481208325718), 'd_ll_per_fold': [1.4, 8.1, 4.4, 0.5, 0.0, 2.3, -1.6]}
+{'family': 'sweep', 'n_feats': 6, 'd_ll_mean': np.float64(-0.40917370028362654), 'folds_helped': 2, 'd_auc_mean': np.float64(-0.033261824391658416), 'd_ll_per_fold': [-0.4, -1.8, 1.5, 1.3, -0.6, -0.2, -2.6]}
+{'family': 'vol', 'n_feats': 5, 'd_ll_mean': np.float64(2.1447994283774188), 'folds_helped': 6, 'd_auc_mean': np.float64(0.13059504173271413), 'd_ll_per_fold': [2.1, 2.6, 4.6, 1.7, 1.2, 3.9, -1.0]}
+
+FULL h=1: ll_skill=31.37 auc=0.5428 per-fold ll=[24.6, 51.6, 36.4, 23.1, 38.2, 35.5, 10.2]
+     family  n_feats  d_ll_mean  folds_helped  d_auc_mean
+0     basis        6     15.192             7       1.228
+1     clock        5      3.059             6       0.228
+9     shape        3      2.170             6       0.116
+11      vol        5      2.145             6       0.131
+2       eth        3      0.976             5       0.065
+7   returns       11      0.803             5       0.044
+5     phase        4      0.299             4       0.023
+6     range       10      0.210             4      -0.010
+3      flow       19     -0.144             4      -0.030
+4    impact        9     -0.182             4      -0.025
+10    sweep        6     -0.409             2      -0.033
+8     round        9     -0.709             3      -0.087

@@ -1,0 +1,1 @@
+[v1_all h=1 n=90] mean: auc=0.5428 acc=0.5293 ll_skill_bp=31.3734 ic=0.0755 acc_top10=0.5892 edge_top10=0.1821 auc@zd0_1=0.5501 ic@zd0_1=0.0916 auc@zd10_1=0.5304 ic@zd10_1=0.0516 auc@zd30_1=0.5187 ic@zd30_1=0.0268 | worst-fold auc=0.5246 ic=0.0503

@@ -10,6 +10,8 @@ import glob
 S = pd.concat([pd.read_parquet(f) for f in sorted(glob.glob("data/sec/*.parquet"))])
 S = S[~S.index.duplicated()].sort_index()
 T = make_targets(P, sig, horizons=(1, 2, 3, 4, 5), sec=S)
-X.to_parquet("data/X_dev.parquet"); T.to_parquet("data/T_dev.parquet")
-pd.Series(FAMILY).to_csv("data/families.csv")
+import sys
+suffix = sys.argv[1] if len(sys.argv) > 1 else ""
+X.to_parquet(f"data/X_dev{suffix}.parquet"); T.to_parquet("data/T_dev.parquet")
+pd.Series(FAMILY).to_csv(f"data/families{suffix}.csv")
 print(X.shape, f"{time.time()-t0:.0f}s"); print(X.describe().T[["mean", "std", "min", "max"]].round(3).to_string())

@@ -133,9 +133,22 @@ def make_features(P, families=None):
             _add(F, f"eth_rel_{k}", e_ret - F[f"ret_{k}"], "eth")
 
 
-    # ---------------- H. permanent vs transient impact (Hasbrouck-style) ---
-    # Rolling regression of spot return on combined signed flow: the flow-explained
-    # part of a move is "informed" (should persist), the residual is noise (should revert).
+    # ---------------- L. intra-bar structure recovered from kline volume fields ---
+    # bar VWAP = quote_volume / volume. Close vs VWAP tells how the minute ENDED;
+    # close-basis minus VWAP-basis tells whether the perp/spot dislocation is FRESH
+    # (appeared late in the minute, spot has not caught up yet) or stale.
+    s_bvwap = np.log(qv / vol.where(vol > 0))
+    p_vol = P["p_volume"].astype("float64")
+    p_bvwap = np.log(p_qv / p_vol.where(p_vol > 0))
+    _add(F, "s_close_vs_vwap", (s_c - s_bvwap) / sig, "intrabar")
+    _add(F, "p_close_vs_vwap", (p_c - p_bvwap) / sig, "intrabar")
+    _add(F, "basis_fresh", (basis - (p_bvwap - s_bvwap)) / sig, "intrabar")
+    vbasis = p_bvwap - s_bvwap
+    _add(F, "basis_vwap_dev60", (vbasis - ewm(vbasis, 60)) / sig, "intrabar")
+
+    # ---------------- H. transient vs permanent impact (Hasbrouck / propagator) ---
+    # Rolling regression of spot return on combined signed flow. Finding: the
+    # flow-explained part of the last ~15 min reverts; the flow-free part does not.
     flow_n = (s_flow + p_flow) / (s_qv_avg + p_qv_avg)
     rr = r.fillna(0.0)
     fx = flow_n.fillna(0.0)
